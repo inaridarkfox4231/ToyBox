@@ -3,7 +3,7 @@
 // ていうか状態遷移ならフラッピーでやったから知ってるでしょ・・。
 
 // アクションゲームのリフトは要するに・・横ボタンで速度を与えてボタンでジャンプ、で、反発係数はすべて0にする感じ・・かなぁ。プレイヤー側の。
-// 重力は常にかかる、とかして。
+// 重力は常にかかる、とかして。→駄目だった
 
 // まあ、ゲーム作るならまずは状態遷移やな。
 
@@ -14,6 +14,8 @@
 // これ思ったんだけど前のステートのポインタを直接渡せばいいんじゃないの。
 // infoとか小細工必要ない気がするんだけど・・nameで識別して分岐処理するだけだし。infoだとどんどんプロパティ増やさないといけなくなるし、
 // 一部のプロパティだけ抜き出すメリットあんまないと思うんだよね。とりまそこだけ修正。
+
+// こっちやろう。
 
 const AREA_WIDTH = 640;
 const AREA_HEIGHT = 480;
@@ -40,24 +42,27 @@ function draw(){
 
 class Game{
   constructor(){
-    this.states = {title:new TitleState(), select:new SelectState(), play:new PlayState(), gameover:new GameOverState(), pause:new PauseState()};
+    this.states = {title:new TitleState(this), select:new SelectState(this),
+                   play:new PlayState(this), gameover:new GameOverState(this), pause:new PauseState(this)};
     this.previousState = this.states.title;
     this.currentState = this.states.title;
+  }
+  getState(stateName){
+    return this.states[stateName];
   }
   getCurrentState(){
     return this.currentState.name;
   }
-  setCurrentState(stateName, info){
-    this.currentState = this.states[stateName];
-    this.currentState.initialize(info);
+  setCurrentState(newState){
+    this.currentState = newState;
+    this.currentState.initialize();
   }
   update(){
     this.currentState.update();
-    const info = this.currentState.getInfo();
-    if(name = info.name){
+    const next = this.currentState.nextState;
+    if(next !== undefined){
       this.previousState = this.currentState;
-      this.setCurrentState(name, info);
-      this.previousState.reset();
+      this.setCurrentState(next);
     }
   }
   draw(){
@@ -66,37 +71,34 @@ class Game{
 }
 
 class State{
-  constructor(){
-    this.nextStateInfo = {name:undefined};
+  constructor(node){
+    this.node = node;
+    this.previousState = undefined;
+    this.nextState = undefined;
     this.backgroundScreen = createGraphics(AREA_WIDTH, AREA_HEIGHT);
     this.mainScreen = createGraphics(AREA_WIDTH, AREA_HEIGHT);
   }
-  initialize(info){}
-  reset(){
-    this.nextStateInfo.name = undefined;
-  }
+  initialize(){}
   keyAction(code){}
-  getInfo(){ return this.nextStateInfo; }
   update(){}
   draw(){}
 }
 
 class TitleState extends State{
-  constructor(){
-    super();
+  constructor(node){
+    super(node);
     this.name = "title";
     this.initialize();
   }
-  initialize(info){
-    this.backgroundScreen.background(255, 0, 0);
-  }
-  reset(){
-    this.nextStateInfo.name = undefined;
+  initialize(){
+    this.nextState = undefined;
+    this.backgroundScreen.background(0, 128, 255);
   }
   keyAction(code){
     switch(code){
       case _ENTER:
-        this.nextStateInfo.name = "select";
+        this.nextState = this.node.getState("select");
+        this.nextState.previousState = this;
         break;
     }
   }
@@ -114,18 +116,15 @@ class TitleState extends State{
 }
 
 class SelectState extends State{
-  constructor(){
-    super();
+  constructor(node){
+    super(node);
     this.name = "select";
     this.level = 0;
     this.maxLevel = 3;
   }
-  initialize(info){
+  initialize(){
+    this.nextState = undefined;
     this.backgroundScreen.background(64);
-  }
-  reset(){
-    this.nextStateInfo.name = undefined;
-    this.nextStateInfo.level = 0;
   }
   levelShift(code){
     if(code === _LEFT){ this.level = (this.level + this.maxLevel - 1) % this.maxLevel; }
@@ -138,8 +137,9 @@ class SelectState extends State{
       case _RIGHT:
         this.levelShift(code); break;
       case _ENTER:
-        this.nextStateInfo.name = "play";
-        this.nextStateInfo.level = this.level;
+        this.nextState = this.node.getState("play");
+        this.nextState.level = this.level;
+        this.nextState.previousState = this;
         break;
     }
   }
@@ -164,8 +164,8 @@ class SelectState extends State{
 }
 
 class PlayState extends State{
-  constructor(){
-    super();
+  constructor(node){
+    super(node);
     this.name = "play";
     this.level = 0;
     this.nums = [];
@@ -182,13 +182,18 @@ class PlayState extends State{
       }
     }
   }
-  initialize(info){
-    this.level = info.level;
-    this.backgroundScreen.background(0, this.level * 80, 0);
-    this.nums.push(floor(random() * 5));
-    this.nums.push(floor(random() * 5));
-    this.nums.push(this.nums[0] + this.nums[1]);
-    this.nums.push(-1);
+  initialize(){
+    // たとえばポーズから戻る場合など、ほとんど変えるところがなかったりするので・・そういうのを分岐で表現する。
+    this.nextState = undefined;
+    switch(this.previousState.name){
+      case "select":
+        this.backgroundScreen.background(0, this.level * 80, 0);
+        this.nums.push(floor(random() * 5));
+        this.nums.push(floor(random() * 5));
+        this.nums.push(this.nums[0] + this.nums[1]);
+        this.nums.push(-1);
+        break;
+    }
   }
   update(){}
   draw(){
@@ -213,8 +218,8 @@ class PlayState extends State{
 // PLAYからの分岐ステートです。PLAYの流れを一旦止め、画像を受け取りそれをブラインドしたものを背景に設定しつつ、
 // コンフィグやタイトルに戻るなどの操作を実行します。何をするかはゲームに依るけどまあパズルとかなら全部リセットするとか
 class PauseState extends State{
-  constructor(){
-    super();
+  constructor(node){
+    super(node);
     this.name = "pause";
   }
   update(){}
@@ -222,8 +227,8 @@ class PauseState extends State{
 }
 
 class GameOverState extends State{
-  constructor(){
-    super();
+  constructor(node){
+    super(node);
     this.name = "gameover";
   }
   update(){}

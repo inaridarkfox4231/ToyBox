@@ -15,6 +15,22 @@
 // ERASE押すとランダムでボールが一つ消える
 // そんくらい？
 
+// リセットで全部消す
+
+// 跳ねるたびに最高点が高くなるのはあれ、位置を戻す際に速度を戻してないから。だから、衝突時の速度のまま
+// 戻った位置からスタートしちゃってる、それで徐々に「無駄に加えた」加速度の分が足されて行ってるということだと思う。
+// だから位置を戻す際に・・
+// で、おそらくこれと同じことは球同士の衝突でも起こってるはず。見えないだけで。
+// 加速度も定数だからね・・・割合計算しないといけないのよ・・むずいなぁ。
+// 処理前の位置と処理後の位置のy座標を比較して、処理を行わなかった場合のy座標を考えて、結局2乗で変化するので、
+// そこから衝突までにかかった時間を算出し、その分だけ速度のy成分を引けばいい。（ボールの場合もやらないとね・・・・）
+// 物理演算ほんとめんどくさい。
+
+// あとあれ、gを足すタイミング替えた時にはじっこにワープしたでしょ、
+// あれは平行にぶつかるならはじっこだのロジックが働いちゃってる。要するに、あれがInfinityになっちゃって、そういうことね。
+// そういうことが起きないようにしないと・・
+// Infinityにしたあとの処理を変えればいい。hが0.0～1.0の場合にはinsideがtrueになるように誘導する感じ。起きにくいことにも対処しないと。
+
 let balls = [];
 let segments = [];
 
@@ -341,6 +357,7 @@ class Ball{
 	constructor(x, y, u, v, r){
 		this.position = createVector(x, y);
 		this.previousPosition = createVector(); // 直前のフレームの位置
+		this.previousVelocity = createVector(); // 直前の速度
 		this.velocity = createVector(u, v);
 		this.radius = r;
     this.massFactor = 1.0;
@@ -356,10 +373,12 @@ class Ball{
 	update(){
 		if(this.alive){
 			this.previousPosition.set(this.position.x, this.position.y);
+			this.previousVelocity.set(this.velocity.x, this.velocity.y);
+
 			this.position.add(this.velocity);
 			const mg = this.velocity.mag();
-			if(mg > this.radius * 2){ this.velocity.mult(this.radius * 1.99 / mg); }
 			if(gravitationFlag){ this.velocity.y += GRAVITY; }
+			if(mg > this.radius * 2){ this.velocity.mult(this.radius * 1.99 / mg); }
 		}
     if(this.position.x < 0 || this.position.x > 640 || this.position.y < 0 || this.position.y > 480){ this.kill(); }
 	}
