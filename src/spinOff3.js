@@ -30,6 +30,20 @@
 // あれは平行にぶつかるならはじっこだのロジックが働いちゃってる。要するに、あれがInfinityになっちゃって、そういうことね。
 // そういうことが起きないようにしないと・・
 // Infinityにしたあとの処理を変えればいい。hが0.0～1.0の場合にはinsideがtrueになるように誘導する感じ。起きにくいことにも対処しないと。
+// 違いますね
+
+// 冷静に考える。1フレーム前は交わっていなかったのにそのフレームでは接触しているということは、その間のどこかで接しているはずで、
+// だったらそんな遠くまで行くはずがないのであってね。画面内に接しているタイミングが存在しなければおかしいでしょう。それを補間で探せばいいはず。
+// つまり、まじめにやるとどっかへんなとこにとんでっちゃってから戻ってくるみたいになっちゃうからそれを回避しようっていうね。
+
+// ていうのはおいといて。
+
+// 動かすのをベクトルでやりたい（そもそも垂直移動に限るのおかしいだろ）
+// ゲームにする際は当たるたびに消えるようにしたいのと、あと真ん中クリック＆ドラッグで移動させられるようにしたい感じ。で、真ん中のエリアクリックで
+// ・・まあいいや。プレスとリリースの位置が近すぎるときは何も起こらないようにしてダブルクリックで消せるようにする。
+// 初めにボールがひとつ浮いている状態から、うまく誘導してゴールに持っていく。
+// 途中ワープゾーンとかいろいろギミック置く。
+// 速くなったらスピードを落とす処理も必要って今日話してた
 
 let balls = [];
 let segments = [];
@@ -99,22 +113,25 @@ function draw(){
 
 function drawGuide(){
 	if(!actionPreparation){ return; } // アクションが控えている場合だけ。
+	const mx = mouseX;
+	const my = mouseY;
 	switch(mode){
     case 0:
-      fill(255, 0, 0);
-      circle(mouseX, mouseY, 6);
+      fill(color(DEFAULT_SEGMENT_COLOR));
+      circle(mx, my, 6);
       if(mouseIsPressed){
-        stroke(255, 0, 0);
+        stroke(color(DEFAULT_SEGMENT_COLOR));
         strokeWeight(5);
-        line(segmentStart.x, segmentStart.y, mouseX, mouseY);
+        line(segmentStart.x, segmentStart.y, mx, my);
         noStroke();
       }
       break;
     case 1:
-      fill(0, 0, 255);
+		  const ballColor = (gravitationFlag ? color(GRAVITY_BALL_COLOR) : color(DEFAULT_BALL_COLOR));
+      fill(ballColor);
       circle(mouseX, mouseY, 6);
       if(mouseIsPressed){
-        stroke(0, 0, 255);
+        stroke(ballColor);
         strokeWeight(BALL_RADIUS);
         const bx = ballPosition.x;
         const by = ballPosition.y;
@@ -147,11 +164,11 @@ function drawGuide(){
 			const ip = p5.Vector.dot(normalVector, p5.Vector.sub(createVector(mouseX, mouseY), p1)); // 符号付の距離
 			const endPoint = p5.Vector.add(startPoint, p5.Vector.mult(normalVector, ip)); // マウスの方向に伸ばしたときの終点みたいな。
 			if(moveType === "parallel"){
-				// セグメントの中心からマウス位置を通るセグメントに平行な直線に向けて垂直に線を引く。これがガイドラインになる感じ。
-			  parallelMoveInfo = {x:endPoint.x - startPoint.x, y:endPoint.y - startPoint.y};
+				// セグメントの中心からマウス位置に向けて線を引く。これがガイドラインになる感じ。
+			  parallelMoveInfo = {x:mx - startPoint.x, y:my - startPoint.y};
 			  stroke(0, 128, 255);
 			  strokeWeight(5);
-			  line(startPoint.x, startPoint.y, endPoint.x, endPoint.y);
+			  line(startPoint.x, startPoint.y, mx, my);
 			  noStroke();
 			}else{
 				// p5.Vector.dist(startPoint, endPoint)を長さの半分（半径にあたる）で割って角度を出す。
@@ -514,6 +531,7 @@ function adjustBallPosition(b, sg){
 		touchInfo.type = "parallel";
 		return touchInfo;
 	}
+
 	const t1 = (b.radius + sg.weight * 0.5 - (diffUnit > 0 ? 1 : -1) * info.dist) * multiplier; // このtの分だけdiffで動かすイメージ。
 	b.position.add(p5.Vector.mult(diffVector, t1));
 	// この時点で幅wの直線と接しているはずなので、その時点で線分と接しているならよし。接点を返す。

@@ -18,7 +18,7 @@ let myBall;
 function setup(){
 	createCanvas(640, 480);
   //for(let i = 0; i < 20; i++){ balls.push(new Ball(20 + i * 20, 20, 1.2, 1.6, 6)); }
-  myBall = new PlayerBall(40, 40, 0, 0, 6, 0.5);
+  myBall = new PlayerBall(40, 40, 0, 0, 6, 0.01);
   balls.push(myBall);
 
 	balls.push(new Ball(320, 220, 0, 0, 6));
