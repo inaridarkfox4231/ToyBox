@@ -402,4 +402,5 @@ class ClearState extends State{
 // キーコードを数字にするには48を引くだけ。簡単！！
 function keyPressed(){
   myGame.currentState.keyAction(keyCode);
+	return false;
 }
