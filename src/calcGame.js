@@ -156,7 +156,7 @@ class SelectState extends State{
     super(node);
     this.name = "select";
     this.id = 0;
-    this.maxId = 4; // idは0, 1, 2, 3で1, 2, 3がレベルに対応する感じ。0はTO TITLE.
+    this.maxId = 7; // idは0, 1, 2, 3で1, 2, 3がレベルに対応する感じ。0はTO TITLE.
     this.mainScreen.rectMode(CENTER); // ボックスはすべてこのタイプなのでめんどうだしこれで。
     this.mainScreen.textSize(AREA_HEIGHT * 0.05);
     this.mainScreen.textAlign(CENTER, CENTER);
@@ -170,18 +170,21 @@ class SelectState extends State{
     // 4, 5, 6に左右キーで移れるようにするかな・・・
     if(code === _UP){ this.id = (this.id + this.maxId - 1) % this.maxId; }
     if(code === _DOWN){ this.id = (this.id + 1) % this.maxId; }
+    if(code === _LEFT || code === _RIGHT){
+      if(this.id === 0){ return; }
+      this.id += (this.id < 4 ? 3 : -3);
+    }
   }
   keyAction(code){
+    // これ_ENTERとdefaultでいいな。
     switch(code){
-      case _UP:
-        this.levelShift(code); break;
-      case _DOWN:
-        this.levelShift(code); break;
       case _ENTER:
         // 0か1～3かで処理を分ける。レベルの取得はplay側で行う。
         if(this.id > 3){ return; } // 電卓モードは工事中！
         this.simpleShift((this.id > 0 ? "play" : "title"));
         break;
+      default:
+        this.levelShift(code); break;
     }
   }
   update(){}
@@ -200,7 +203,9 @@ class SelectState extends State{
     gr.noFill();
     gr.strokeWeight(2);
     gr.stroke(0);
-    gr.rect(AREA_WIDTH * 0.3, AREA_HEIGHT * (0.4 + 0.1 * this.id), AREA_WIDTH * 0.32, AREA_HEIGHT * 0.09);
+    const x = (this.id < 4 ? 0 : 1);
+    const y = (this.id < 4 ? this.id : this.id - 3);
+    gr.rect(AREA_WIDTH * (0.3 + 0.4 * x), AREA_HEIGHT * (0.4 + 0.1 * y), AREA_WIDTH * 0.32, AREA_HEIGHT * 0.09);
     gr.noStroke();
     image(gr, 0, 0);
   }
