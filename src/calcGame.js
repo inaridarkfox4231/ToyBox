@@ -8,6 +8,11 @@
 
 // 640x480でいいよ。
 // 割合指定の方が分かりやすいのよね。
+
+// 改善案
+// スコア調整
+// タイトルからハイスコア行けるようにするとか
+// 効果音
 const AREA_WIDTH = 640;
 const AREA_HEIGHT = 480;
 
@@ -26,6 +31,7 @@ const FINISHED = 2;
 
 let myGame;
 let palette = {};
+const countLimits = [0, 300, 600, 900, 1440, 1920, 2400];
 const scoreFactor = [0, 30, 50, 100, 60, 100, 200]; // レベルごとのスコアボーナス
 const allClearBonus = [0, 20000, 50000, 100000, 40000, 100000, 200000]; // 全問正解ボーナス
 
@@ -151,6 +157,7 @@ class TitleState extends State{
 // これとは別に電卓のレベル1, 2, 3を用意する。それぞれ、3桁、4桁、5桁で加える数はすべて9個(3x3)。
 // 電卓ならそのくらいやらないと。
 // 制限時間はそれぞれ15秒、20秒、25秒にする。厳しいなおい。
+// 電卓はレベル4, 5, 6にして。
 class SelectState extends State{
   constructor(node){
     super(node);
@@ -180,7 +187,7 @@ class SelectState extends State{
     switch(code){
       case _ENTER:
         // 0か1～3かで処理を分ける。レベルの取得はplay側で行う。
-        if(this.id > 3){ return; } // 電卓モードは工事中！
+        //if(this.id > 3){ return; } // 電卓モードは工事中！
         this.simpleShift((this.id > 0 ? "play" : "title"));
         break;
       default:
@@ -258,8 +265,10 @@ class PlayState extends State{
     switch(this.previousState.name){
       case "select":
         const level = this.previousState.id;
+        const idChar = (level < 4 ? "a" : "d");
+        const l = (level < 4 ? level : level - 3);
         this.system.initialize(level); // レベルを元にもろもろ初期化（モード情報も・・）
-        this.backgroundScreen.background(color(palette["level_a" + level]));
+        this.backgroundScreen.background(color(palette["level_" + idChar + l]));
         break;
     }
   }
@@ -318,7 +327,8 @@ class ResultState extends State{
     gr.image(this.backgroundScreen, 0, 0);
     gr.fill(0);
     const fc = this.properFrameCount;
-    if(fc > 29){ gr.text("result(暗算モード LEVEL" + this.level + ")", AREA_WIDTH * 0.5, AREA_HEIGHT * 0.3); }
+    const l = (this.level < 4 ? this.level : this.level - 3);
+    if(fc > 29){ gr.text("result(暗算モード LEVEL" + l + ")", AREA_WIDTH * 0.5, AREA_HEIGHT * 0.3); }
     if(fc > 59){ gr.text("SCORE:" + this.score, AREA_WIDTH * 0.5, AREA_HEIGHT * 0.38); }
     if(fc > 89){ gr.text("ALL CORRECT BONUS:" + this.bonus, AREA_WIDTH * 0.5, AREA_HEIGHT * 0.46); }
     if(fc > 134){ gr.text("FINAL SCORE:" + (this.score + this.bonus), AREA_WIDTH * 0.5, AREA_HEIGHT * 0.6); }
@@ -330,12 +340,12 @@ class ResultState extends State{
 // ---------------------------------
 // 計算ゲームのメインロジック
 // 電卓モード用に別に作る必要があるわね
+// numを配列にしよう（普通はそうするだろ）
 
 class CalcGameSystem{
   constructor(){
     this.level = 0;
-    this.num1 = 0;
-    this.num2 = 0;
+    this.nums = [];
     this.correctAnswer = 0;
     this.inputAnswer = 0;
     this.restCount = 0;
@@ -373,18 +383,22 @@ class CalcGameSystem{
   }
   initialize(level){
     this.level = level;
-    this.countLimit = 300 * this.level;
+    this.countLimit = countLimits[this.level];
     this.score = 0;
     this.correctAnswerNum = 0;
     this.queryNumber = 0;
     this.setQuery();
   }
   setQuery(){
-    const minNum = Math.pow(10, this.level);
-    const maxNum = Math.pow(10, this.level + 1);
-    this.num1 = Math.floor(minNum + random() * (maxNum - minNum));
-    this.num2 = Math.floor(minNum + random() * (maxNum - minNum));
-    this.correctAnswer = this.num1 + this.num2; // 答え。
+    const l = (this.level < 4 ? this.level : this.level - 2); // 4, 5, 6の場合は2, 3 ,4にする。
+    const minNum = Math.pow(10, l);
+    const maxNum = Math.pow(10, l + 1);
+    this.nums = [];
+    const m = (this.level < 4 ? 2 : 9); // 電卓モードでは9つの数で。
+    for(let i = 0; i < m; i++){
+      this.nums.push(Math.floor(minNum + random() * (maxNum - minNum)));
+    }
+    this.correctAnswer = this.nums.reduce((a, b) => a + b); // 答え。reduce便利。
     this.inputAnswer = 0; // 初期化
     this.restCount = this.countLimit;
     this.state = THINKING;
@@ -410,7 +424,7 @@ class CalcGameSystem{
       this.judgeText = "WRONG...";
     }
     this.state = SHOW_ANSWER;
-    this.restCount = 120;
+    this.restCount = 60; // 解答表示時間は短い方がいいよね
   }
   shiftState(){
     // state,及びqueryのnumberに応じて異なる処理
@@ -442,13 +456,24 @@ class CalcGameSystem{
     gr.rect(AREA_WIDTH * 0.5, AREA_HEIGHT * 0.5, AREA_WIDTH * 0.88, AREA_HEIGHT * 0.88);
     gr.fill(0);
     gr.textAlign(CENTER, CENTER);
-    gr.text("問題" + this.queryNumber, AREA_WIDTH * 0.5, AREA_HEIGHT * 0.4);
+    let h = (this.level < 4 ? 0.4 : 0.35); // 電卓モードはちょこっと上にずらす
+    gr.text("問題" + this.queryNumber, AREA_WIDTH * 0.5, AREA_HEIGHT * h);
     const n = (this.state === THINKING ? "?" : this.correctAnswer);
-    gr.text(this.num1 + " + " + this.num2 + " = " + n, AREA_WIDTH * 0.5, AREA_HEIGHT * 0.5);
-    gr.text("あなたの解答：" + this.inputAnswer, AREA_WIDTH * 0.5, AREA_HEIGHT * 0.6);
+    if(this.level < 4){
+      h += 0.1;
+      gr.text(this.nums[0] + " + " + this.nums[1] + " = " + n, AREA_WIDTH * 0.5, AREA_HEIGHT * h);
+    }else{
+      h += 0.1;
+      gr.text(this.nums[0] + " + " + this.nums[1] + " + " + this.nums[2] + " + " + this.nums[3] + " + " + this.nums[4] + " +", AREA_WIDTH * 0.5, AREA_HEIGHT * h);
+      h += 0.1;
+      gr.text(this.nums[5] + " + " + this.nums[6] + " + " + this.nums[7] + " + " + this.nums[8] + " = " + n, AREA_WIDTH * 0.5, AREA_HEIGHT * h);
+    }
+    h += 0.1;
+    gr.text("あなたの解答：" + this.inputAnswer, AREA_WIDTH * 0.5, AREA_HEIGHT * h);
+    h += 0.1;
     if(this.state === SHOW_ANSWER){
       gr.fill(color(palette[this.judgeText]));
-      gr.text(this.judgeText, AREA_WIDTH * 0.5, AREA_HEIGHT * 0.7);
+      gr.text(this.judgeText, AREA_WIDTH * 0.5, AREA_HEIGHT * h);
     }
     // タイムゲージなど
     gr.rectMode(CORNER);
