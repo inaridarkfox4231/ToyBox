@@ -46,12 +46,23 @@
 // すればよさそうな。ともかく全部に合わせてサイズいじるのめんどくさいから・・
 // つぶやきProcessing程度の軽い（ものによっては重いので注意）やつだったら簡単にまとめられそう。
 
-const activeButtonPalette = ["blue", "orange", "red", "green", "purple"];
-const nonActiveButtonPalette = ["skyblue", "khaki", "#f99", "#9f9", "#b8f"];
+// 数から解放された。
+// これで自由に追加できるようになった。何でもありだ。
+// もはやアクティブとかノンアクティブの色に意味はないから統一しちゃおう（いちいち考えるの面倒）。
+
+const nonActiveButtonColor = "lemonchiffon";
+const activeButtonColor = "darkorange";
+const textBackColor = "khaki";
+const sketchNames = ["starry", "blue&nbsp;dragon", "flip&nbsp;flop&nbsp;block", "bullet&nbsp;hell", "lets&nbsp;oekaki",
+										 "rainbow&nbsp;mosaic", "small&nbsp;fireworks", "bluesky", "minimum&nbsp;hilbert", "RED",
+										 "motion&nbsp;of&nbsp;lines"];
+const sketchNamesForTitle = Array.from(sketchNames, s => s.replaceAll("&nbsp;", " "));
 const CANVAS_LEFT = 100;
 const CANVAS_TOP = 0;
 const CANVAS_WIDTH = 500;
 const CANVAS_HEIGHT = 400;
+
+let currentSketchId = -1; // 現在表示中のスケッチ
 
 // いわゆるあれ、tween的な「何か」は外に書けるよね。クラス定義も・・んー。
 // -------------------------------------------------
@@ -143,7 +154,7 @@ function easing(name, x){
 		case "easeOutCirc": return Math.sqrt(x * (2 - x));
 	}
 }
-// -------------------------------------------------
+// -------------------------------------------------------------------------------------------------------------------------
 
 const mainSketch = p =>{
 	p.setup = () =>{
@@ -153,36 +164,58 @@ const mainSketch = p =>{
 		div1.position(CANVAS_LEFT, CANVAS_TOP);
 		div1.style("width", CANVAS_WIDTH.toString() + "px");
 		div1.style("height", CANVAS_HEIGHT.toString() + "px");
-		createSketchButton({name:"sk_0", x:20, y:20, w:60, h:60, fontSize:20, bgColor:nonActiveButtonPalette[0], id:"sketch_0_btn"});
-		createSketchButton({name:"sk_1", x:20, y:100, w:60, h:60, fontSize:20, bgColor:nonActiveButtonPalette[1], id:"sketch_1_btn"});
-		createSketchButton({name:"sk_2", x:20, y:180, w:60, h:60, fontSize:20, bgColor:nonActiveButtonPalette[2], id:"sketch_2_btn"});
-		createSketchButton({name:"sk_3", x:20, y:260, w:60, h:60, fontSize:20, bgColor:nonActiveButtonPalette[3], id:"sketch_3_btn"});
-		createSketchButton({name:"sk_4", x:20, y:340, w:60, h:60, fontSize:20, bgColor:nonActiveButtonPalette[4], id:"sketch_4_btn"});
+		for(let i = 0; i < sketchNames.length; i++){
+			const indentX = 45 * Math.floor(i / 10);
+			const indentY = 40 * (i % 10);
+			createSketchButton({
+				id:i,
+				name:sketchNames[i],
+				x:5 + indentX, y:15 + indentY, w:40, h:30, fontSize:18,
+				bgColor:nonActiveButtonColor,
+				labelColor:textBackColor
+			});
+		}
 	}
 	p.draw = () =>{
 		p.background(220);
 		p.noStroke();
+		/*
 		p.fill(128);
 		p.rect(CANVAS_LEFT, CANVAS_TOP, CANVAS_WIDTH, CANVAS_HEIGHT);
 		p.fill(0);
 		p.textSize(32);
 		p.textAlign(p.CENTER, p.CENTER);
 		p.text("no sketch", CANVAS_LEFT + CANVAS_WIDTH * 0.5, CANVAS_TOP + CANVAS_HEIGHT * 0.5);
+		*/
 		p.textSize(16);
+		if(currentSketchId >= 0){
+		  p.textAlign(p.CENTER, p.CENTER);
+		  p.text(currentSketchId + ". " + sketchNamesForTitle[currentSketchId], CANVAS_LEFT + CANVAS_WIDTH * 0.5, 420);
+		}
 		p.textAlign(p.LEFT, p.TOP);
-		p.text("ボタンをクリックすると該当するスケッチが起動します", 20, 420);
-		p.text("他のボタンをクリックするとそのスケッチは中断したところから再開されます", 20, 440);
+		p.text("ボタンをクリックすると該当するスケッチが起動します", 20, 440);
+		p.text("他のボタンをクリックするとそのスケッチは中断したところから再開されます", 20, 460);
 	}
 	function createSketchButton(data){
-		let btn = p.createButton(data.name);
+		let btn = p.createButton(data.id.toString());
 		btn.position(data.x, data.y);
 		btn.style("width", data.w.toString() + "px");
 		btn.style("height", data.h.toString() + "px");
 		btn.style("font-size", data.fontSize.toString() + "px");
 		btn.style("background", data.bgColor);
-		btn.id(data.id);
+		btn.id("sketch_" + data.id + "_btn");
+		// 好きなDOM作りたければcreateElementを使いましょう。labelなら自動的に長さに応じた背景色になります。
+		let label = p.createElement("label", data.name); // このように半角スペースではなく&nbspにするとうまくいく。
+		label.position(30, 5);
+		label.style("background", data.labelColor);
+		label.style("display", "none");
+		label.id("label_" + data.id);
+		label.style("z-index", "1"); // こうすると隠れずに表示される！
+		label.parent(btn);
 	}
 }
+
+// -------------------------------------------------------------------------------------------------------------------------------
 
 // 以下、スケッチコード。
 // クラス名としてmySketchesを設定することで、アクティブになってるスケッチのDOM要素を特定し排除するのに使う。
@@ -194,163 +227,425 @@ const mainSketch = p =>{
 
 // マージンのところの処理完了したみたい。
 
-const sketch_0 = p =>{
-	let move_0;
-	let properFrameCount = 0;
+function prepareSketch(sk, id){
+	sk.id("sketch_" + id);
+	sk.class("mySketches");
+	sk.style("display", "none");
+}
+
+let sketchList = [];
+let buttonNameList = [];
+
+/*
+面倒なのでテンプレート。ほいっ。
+sketchList.push((p) =>{
 	p.setup = () =>{
-		let sk_0 = p.createCanvas(400, 400);
-		sk_0.id("sketch_0");
-		sk_0.class("mySketches");
-		sk_0.style("display", "none");
-		// sk_0.style("margin", "20px 20px"); // というわけでmargin指定。こうすると。
-		// sk_0.position(20, 20); // こうすると親のDIV要素から20, 20の位置にくる！absoluteだね。
-		p.fill(0, 128, 255);
-		p.rectMode(p.CENTER);
-		move_0 = new Move(100, 100);
-		let beh_0 = createLineBehavior(300, 100, 50, "normal");
-		let beh_1 = createLineBehavior(300, 300, 50, "easeInQuad");
-		let beh_2 = createLineBehavior(100, 300, 50, "normal");
-		let beh_3 = createLineBehavior(100, 100, 50, "easeOutCirc");
-		move_0.inputBehavior([beh_0, beh_1, beh_2, beh_3]);
-		p.textSize(32);
-		p.textAlign(p.CENTER, p.CENTER);
+		prepareSketch(p.createCanvas(600, 600), id);
+	}
+	p.draw = () =>{
+		if(!sketchLoopFlag[id]){ return; }
+	}
+})
+*/
+
+/*
+starry. https://www.openprocessing.org/sketch/954742
+f=0;
+setup=_=>{createCanvas(600, 600);background(0);strokeWeight(2);noFill()}
+draw=_=>{background(0,4);translate(300,300);g=min(a=(f%510),510-a);
+for(r=8;r<800;r+=4){t=noise(r)*2*PI+2*(r%3);stroke(g,r/4,255-g);
+q=20+noise(r+1)*160;arc(0,0,r,r,k=f/q+t,k+0.2)}f++}
+*/
+
+sketchList.push((p) =>{
+	let f = 0;
+	p.setup = () =>{
+		prepareSketch(p.createCanvas(600, 600), 0);
+		p.background(0);
+		p.strokeWeight(2);
+		p.noFill();
 	}
 	p.draw = () =>{
 		if(!sketchLoopFlag[0]){ return; }
-		p.background(0);
-		move_0.update();
-		const pos = move_0.getPos();
-		p.rect(pos.x, pos.y, 40, 40);
-		properFrameCount++;
-		p.text(Math.floor(properFrameCount / 60), 200, 200);
+		p.background(0, 4);
+		p.translate(300, 300);
+		let g = Math.min(f % 510, 510 - (f % 510));
+		for(let r = 8; r < 800; r += 4){
+			let t = p.noise(r) * 2 * Math.PI + 2 * (r % 3);
+			p.stroke(g, r / 4, 255 - g);
+			let q = 20 + p.noise(r + 1) * 160;
+			p.arc(0, 0, r, r, f / q + t, f / q + t + 0.2);
+		}
+		f++;
 	}
-}
+})
 
-const sketch_1 = p =>{
-	let move_1;
-	let properFrameCount = 0;
+/*
+blue dragon: https://neort.io/art/bsvbn7c3p9f8mi6u64i0?index=5&origin=my_profile
+w=640;a=b=320;f=0
+setup=_=>{createCanvas(w,w)}
+draw=_=>{e=(f&1)*2-1;h=1;while(f>=h){if(!(f&h)&&(f&(h*2))){e+=4}h*=2}s=9*cos(PI*e/4);
+t=9*sin(PI*e/4);r=5;while(--r){applyMatrix(0,-1,1,0,0,w);
+fill(0,64*r,96*r);
+quad(a,b,a,b+t,a+s,b+t,a+s,b)}a+=s;b+=t;f++}
+*/
+
+sketchList.push((p) =>{
+	let w = 640;
+	let a = 320;
+	let b = 320;
+	let f = 0;
 	p.setup = () =>{
-		let sk_1 = p.createCanvas(400, 400);
-		sk_1.id("sketch_1");
-		sk_1.class("mySketches");
-		sk_1.style("display", "none");
-		p.fill(255, 127, 0);
-		p.rectMode(p.CENTER);
-		move_1 = new Move(80, 300);
-		let beh_0 = createParabolaBehavior(160, 300, 60, 150);
-		let beh_1 = createParabolaBehavior(240, 300, 60, 150);
-		let beh_2 = createParabolaBehavior(320, 300, 60, 150);
-		let beh_3 = createParabolaBehavior(200, 300, 60, 90);
-		let beh_4 = createParabolaBehavior(80, 300, 60, 90);
-		move_1.inputBehavior([beh_0, beh_1, beh_2, beh_3, beh_4]);
-		p.textSize(32);
-		p.textAlign(p.CENTER, p.CENTER);
+		prepareSketch(p.createCanvas(w, w), 1);
 	}
 	p.draw = () =>{
 		if(!sketchLoopFlag[1]){ return; }
-		p.background(0);
-		move_1.update();
-		const pos = move_1.getPos();
-		p.rect(pos.x, pos.y, 40, 40);
-		properFrameCount++;
-		p.text(Math.floor(properFrameCount / 60), 200, 200);
+		let e = (f & 1) * 2 - 1;
+		let h = 1;
+		while(f >= h){
+			if(!(f & h) && (f & (h * 2))){ e += 4; }
+			h *= 2;
+		}
+		let s = 9 * Math.cos(Math.PI * e / 4);
+		let t = 9 * Math.sin(Math.PI * e / 4);
+		let r = 5;
+		while(--r){
+			p.applyMatrix(0, -1, 1, 0, 0, w);
+			p.fill(0, 64 * r, 96 * r);
+			p.quad(a, b, a, b + t, a + s, b + t, a + s, b);
+		}
+		a += s;
+		b += t;
+		f++;
 	}
-}
+})
 
-const sketch_2 = p =>{
-	let move_2;
-	let properFrameCount = 0;
+/*
+flip flop block: https://www.openprocessing.org/sketch/938699
+g=20;w=g*g;f=0;E=(z)=>{return 16*z*z*(1-z)*(1-z)}
+setup=()=>{createCanvas(w,w)}
+draw=()=>{background(200);
+for(x=-g;x<w;x+=g){for(y=0;y<w;y+=g){v=x+y;if(v%40==0){n=60+g*noise(x,y,0);
+h=floor(f/n);z=f/n-h;s=g*E(z);
+fill(0,v/2,(h%2==0)*w);rect(x+g-s,y,2*s,g)}}}f++}
+*/
+
+sketchList.push((p) =>{
+	let g = 20;
+	let w = g * g;
+	let f = 0;
+	let E = (z) => { return 16 * z * z * (1 - z) * (1 - z); }
 	p.setup = () =>{
-		let sk_2 = p.createCanvas(400, 400);
-		sk_2.id("sketch_2");
-		sk_2.class("mySketches");
-		sk_2.style("display", "none");
-		p.fill(p.color("red"));
-		p.rectMode(p.CENTER);
-		move_2 = new Move(100, 200);
-		let beh_0 = createCircularBehavior(100, 200, 200, 200, 90, 2 * Math.PI);
-		let beh_1 = createLineBehavior(300, 300, 90, "easeOutCirc");
-		let beh_2 = createParabolaBehavior(100, 200, 60, 80);
-		move_2.inputBehavior([beh_0, beh_1, beh_2]);
-		p.textSize(32);
-		p.textAlign(p.CENTER, p.CENTER);
+		prepareSketch(p.createCanvas(w, w), 2);
 	}
 	p.draw = () =>{
 		if(!sketchLoopFlag[2]){ return; }
-		p.background(0);
-		move_2.update();
-		const pos = move_2.getPos();
-		p.rect(pos.x, pos.y, 40, 40);
-		properFrameCount++;
-		p.text(Math.floor(properFrameCount / 60), 200, 200);
-	}
-}
-
-const sketch_3 = p =>{
-	let move_3;
-	let properFrameCount = 0;
-	p.setup = () =>{
-		let sk_3 = p.createCanvas(400, 400);
-		sk_3.id("sketch_3");
-		sk_3.class("mySketches");
-		sk_3.style("display", "none");
-		p.fill(p.color("green"));
-		p.rectMode(p.CENTER);
-		move_3 = new Move(200, 200);
-		let behList = [];
-		for(let i = 0; i < 8; i++){
-			behList.push(createLineBehavior(40 + p.random() * 320, 40 + p.random() * 320, 30, "easeInQuad"));
+		p.background(200);
+		for(let x = -g; x < w; x += g){
+			for(let y = 0; y < w; y += g){
+				let v = x + y;
+				if(v % 40 === 0){
+					let n = 60 + g * p.noise(x, y, 0);
+					let h = Math.floor(f / n);
+					let z = f / n - h;
+					let s = g * E(z);
+					p.fill(0, v / 2, (h % 2 === 0) * w);
+					p.rect(x + g - s, y, 2 * s, g);
+				}
+			}
 		}
-		behList.push(createLineBehavior(200, 200, 60, "normal"));
-		move_3.inputBehavior(behList);
-		p.textSize(32);
-		p.textAlign(p.CENTER, p.CENTER);
+		f++;
+	}
+})
+
+/*
+bullet hell: https://www.openprocessing.org/sketch/939484
+w=600;f=0;g=50;setup=()=>{createCanvas(w,w)}
+draw=()=>{background(0);translate(w/2,w/2);i=100;while(i--){n=noise(i);
+s=1+n/2;t=g+99*n;p=(f/t)-floor(f/t);
+fill(0,w*p,w,255*(1-p));
+for(c=-1.5;c<2;c++){rect(430*p,g*max(0,1-1/4/p)*c-3*s,8*s,6*s)}rotate(PI/g)}f++}
+*/
+
+sketchList.push((p) =>{
+	let w = 600;
+	let f = 0;
+	let g = 50;
+	p.setup = () =>{
+		prepareSketch(p.createCanvas(w, w), 3);
 	}
 	p.draw = () =>{
 		if(!sketchLoopFlag[3]){ return; }
 		p.background(0);
-		move_3.update();
-		const pos = move_3.getPos();
-		p.rect(pos.x, pos.y, 40, 40);
-		properFrameCount++;
-		p.text(Math.floor(properFrameCount / 60), 200, 200);
+		p.translate(w / 2, w / 2);
+		let i = 100;
+		while(i--){
+			let n = p.noise(i);
+			let s = 1 + n / 2;
+			let t = g + 99 * n;
+			let q = (f / t) - Math.floor(f / t);
+			p.fill(0, w * q, w, 255 * (1 - q));
+			for(let c = -1.5; c < 2; c++){
+				p.rect(430 * q, g * Math.max(0, 1 - 1 / (4 * q)) * c - 3 * s, 8 * s, 6 * s);
+			}
+			p.rotate(Math.PI / g);
+		}
+		f++;
 	}
-}
+})
 
-const sketch_4 = p =>{
-	let move_4;
-	let properFrameCount = 0;
+/*
+lets oekaki: https://www.openprocessing.org/sketch/951933
+t="#つぶやきProcessing #pchj03";s="140字以内にコードを収めて レッツお絵かき！";f=g=0
+setup=_=>{createCanvas(480,240);fill(0,0,64);rect(10,10,460,220);fill(255);textSize(16)}
+draw=_=>{if(t[g]){text(t[g],60+g*16,118);text(s[g],60+g*16,138)}else{noLoop()}f++;if(f%4==0){g++}}
+*/
+
+sketchList.push((p) =>{
+	let t = "#つぶやきProcessing #pchj03";
+	let s = "140字以内にコードを収めて レッツお絵かき！";
+	let f = 0;
+	let g = 0;
 	p.setup = () =>{
-		let sk_4 = p.createCanvas(400, 400);
-		sk_4.id("sketch_4");
-		sk_4.class("mySketches");
-		sk_4.style("display", "none");
-		p.fill(p.color("purple"));
-		p.rectMode(p.CENTER);
-		move_4 = new Move(80, 80);
-		let behList = [];
-		behList.push(createLineBehavior(80, 320, 60, "easeOutCirc"));
-		behList.push(createParabolaBehavior(320, 320, 60, 160));
-		behList.push(createLineBehavior(320, 80, 60, "easeInQuad"));
-		behList.push(createCircularBehavior(320, 80, 200, 80, 60, Math.PI));
-		move_4.inputBehavior(behList);
-		p.textSize(32);
-		p.textAlign(p.CENTER, p.CENTER);
+		prepareSketch(p.createCanvas(480, 240), 4);
+		p.fill(0, 0, 64);
+		p.rect(10, 10, 460, 220);
+		p.fill(255);
+		p.textSize(16);
 	}
 	p.draw = () =>{
 		if(!sketchLoopFlag[4]){ return; }
-		p.background(0);
-		move_4.update();
-		const pos = move_4.getPos();
-		p.rect(pos.x, pos.y, 40, 40);
-		properFrameCount++;
-		p.text(Math.floor(properFrameCount / 60), 200, 200);
+		if(t[g]){
+			p.text(t[g], 60 + g * 16, 118);
+			p.text(s[g], 60 + g * 16, 138);
+		}else{
+			p.noLoop();
+		}
+		f++;
+		if(f % 4 == 0){ g++; }
 	}
+})
+
+/*
+rainbow mosaic: https://www.openprocessing.org/sketch/930748
+x=320;z=16;y=x+z;u=0;v=-1;R=()=>{w=u;u=v;v=-w};f=0;g=h=1
+setup=()=>{createCanvas(640,640);colorMode(HSB,100);noStroke()}
+draw=()=>{fill(80-floor(f/16),(f*h)%100,100-(h%10));square(x,y,z);x+=u*z;y+=v*z;if(f==g){R();g+=1+floor((h++)/2)}f++;if(y==640){noLoop()}}
+*/
+sketchList.push((p) => {
+	let x = 320;
+	let z = 16;
+	let y = x + z;
+	let u = 0;
+	let v = -1;
+	let R = () => {w = u; u = v; v = -w;};
+	let f = 0;
+	let g = 1;
+	let h = 1;
+	p.setup = () =>{
+		prepareSketch(p.createCanvas(640, 640), 5);
+		p.colorMode(p.HSB, 100);
+		p.noStroke();
+	}
+	p.draw = () =>{
+		if(!sketchLoopFlag[5]){ return; }
+		p.fill(80 - Math.floor(f / 16), (f * h) % 100, 100 - (h % 10));
+		p.square(x, y, z);
+		x += u * z;
+		y += v * z;
+		if(f == g){
+			R();
+			g += 1 + Math.floor((h++) / 2)
+		}
+		f++;
+		if(y === 640){ p.noLoop(); }
+	}
+})
+
+/*
+small fireworks: https://www.openprocessing.org/sketch/957997
+f=0;r=[]
+setup=_=>{createCanvas(400,400);noStroke()}
+draw=_=>{if(f%60==0){c=198;while(c--){r[c]=random()}}background(0);
+translate(200,200);
+n=198;g=(f%60)/60;fill(255,99,0,255*(1-pow(g,3)));
+while(n--){rotate(PI/99);circle(200*sqrt(1-r[n]*r[n])*g,0,5)}f++}
+*/
+
+sketchList.push((p) =>{
+	let f = 0;
+	let r = [];
+	p.setup = () =>{
+		prepareSketch(p.createCanvas(400, 400), 6);
+		p.noStroke();
+	}
+	p.draw = () =>{
+		if(!sketchLoopFlag[6]){ return; }
+		if(f % 60 === 0){
+			let c = 198;
+			while(c--){
+				r[c] = p.random();
+			}
+		}
+		p.background(0);
+		p.translate(200, 200);
+		let n = 198;
+		let g = (f % 60) / 60;
+		p.fill(255, 99, 0, 255 * (1 - Math.pow(g, 3)));
+		while(n--){
+			p.rotate(Math.PI / 99);
+			p.circle(200 * Math.sqrt(1 - r[n] * r[n]) * g, 0, 5);
+		}
+		f++;
+	}
+})
+
+/*
+bluesky: https://www.openprocessing.org/sketch/850255
+x=0;
+function setup(){ colorMode(HSB, 100); createCanvas(400,400); noStroke(); }
+function draw(){for(let i = 0;i < 400;i++){fill(55, 100 - i / 4, 100); rect(0, i,400,1);
+}
+fill(0,0,100); x++;
+ellipse(x%600-100,80,80,30);
+ellipse((x*1.3)%600-100,160,120,50);
+}
+*/
+
+sketchList.push((p) =>{
+	let x = 0;
+	p.setup = () =>{
+		prepareSketch(p.createCanvas(400, 400), 7);
+		p.colorMode(p.HSB, 100);
+		p.noStroke();
+	}
+	p.draw = () =>{
+		if(!sketchLoopFlag[7]){ return; }
+		for(let i = 0; i < 400; i++){
+			p.fill(55, 100 - i / 4, 100);
+			p.rect(0, i, 400, 1);
+		}
+		p.fill(0, 0, 100); x++;
+		p.ellipse(x % 600 - 100, 80, 80, 30);
+		p.ellipse((x * 1.3) % 600 - 100, 160, 120, 50);
+	}
+})
+
+/*
+minimum hilbert: https://www.openprocessing.org/sketch/938101
+x=y=[];a=b=i=8
+T=(a,b,c,d,e)=>[a,c,b,d,b,e,a.map(u=>-u)].reduce((s,t)=>s.concat(t))
+setup=()=>{createCanvas(w=650,w);while(--i>0){u=T(y,x,0,1,0);y=T(x,y,1,0,-1);x=u}stroke(0,128,255)}
+draw=()=>{r=9;while(r--){line(a,b,a+=5*x[i],b+=5*y[i++])}}
+*/
+
+sketchList.push((p) =>{
+	let x = [];
+	let y = [];
+	let a = 8;
+	let b = 8;
+	let i = 8;
+	let T = (f, g, c, d, e) => [f, c, g, d, g, e, f.map(u => -u)].reduce((s, t) => s.concat(t));
+	p.setup = () =>{
+		prepareSketch(p.createCanvas(650, 650), 8);
+		while(--i > 0){
+			let z = T(y, x, 0, 1, 0);
+			y = T(x, y, 1, 0, -1);
+			x = z;
+		}
+		p.stroke(0, 128, 255);
+	}
+	p.draw = () =>{
+		if(!sketchLoopFlag[8]){ return; }
+		let r = 9;
+		while(r--){
+			p.line(a, b, a += 5 * x[i], b += 5 * y[i++]);
+		}
+	}
+})
+
+/*
+RED: https://www.openprocessing.org/sketch/860480
+let x = 0, y = 0, u = 0, v = 0;
+function setup(){
+	createCanvas(480, 640);
+	background(0);
+	stroke(255, 0, 0);
+	strokeWeight(2.0);
 }
 
-const sketchList = [sketch_0, sketch_1, sketch_2, sketch_3, sketch_4];
-const sketchNameList = ["sketch_0_btn", "sketch_1_btn", "sketch_2_btn", "sketch_3_btn", "sketch_4_btn"];
-let sketchLoopFlag = new Array(5);
+function draw(){
+  background(0, 0, 0, 3);
+	u = random(0, width);
+	v = random(0, height);
+	line(x, y, u, v);
+	x = u;
+	y = v;
+}
+*/
+
+sketchList.push((p) =>{
+	let x = 0;
+	let y = 0;
+	let u = 0;
+	let v = 0;
+	p.setup = () =>{
+		prepareSketch(p.createCanvas(480, 640), 9);
+		p.background(0);
+		p.stroke(255, 0, 0);
+		p.strokeWeight(2.0);
+	}
+	p.draw = () =>{
+		if(!sketchLoopFlag[9]){ return; }
+		p.background(0, 0, 0, 3);
+		let u = p.random(0, p.width);
+		let v = p.random(0, p.height);
+		p.line(x, y, u, v);
+		x = u;
+		y = v;
+	}
+})
+
+/*
+motion of lines: https://www.openprocessing.org/sketch/933166
+s=256;k=s*2;t=0;f=()=>{}
+setup=()=>{createCanvas(k,k);f=(z,u,j)=>{z=z%360;a=1-pow(max(0,1-z/120),5);b=max(0,pow(z/120-2,5));
+stroke(j*s,u,s,(a-b)*s);line(b*k,u*2,a*k,u*2);
+line(u*2,b*k,u*2,a*k)}}
+draw=()=>{background(0);for(u=0;u<=s;u+=8){f(t+u,u,t%720>360)}t++}
+*/
+
+sketchList.push((p) =>{
+	let s = 256;
+	let k = s * 2;
+	let t = 0;
+	let f = () => {};
+	p.setup = () =>{
+		prepareSketch(p.createCanvas(k, k), 10);
+		f = (z, u, j) => {
+			z = z % 360;
+			let a = 1 - Math.pow(Math.max(0, 1 - z / 120), 5);
+			let b = Math.max(0, Math.pow(z / 120 - 2, 5));
+			p.stroke(j * s, u, s, (a - b) * s);
+			p.line(b * k, u * 2, a * k, u * 2);
+			p.line(u * 2, b * k, u * 2, a * k);
+		}
+	}
+	p.draw = () =>{
+		if(!sketchLoopFlag[10]){ return; }
+		p.background(0);
+		for(let u = 0; u <= s; u += 8){
+			f(t + u, u, t % 720 > 360);
+		}
+		t++;
+	}
+})
+
+// ---------------------------------------------------------------------------------------------------------------------------------- //
+
+for(let i = 0; i < sketchList.length; i++){ buttonNameList[i] = "sketch_" + i + "_btn"; }
+
+let sketchLoopFlag = new Array(sketchList.length);
 sketchLoopFlag.fill(false);
 
 new p5(mainSketch);
@@ -359,12 +654,16 @@ for(let sketch of sketchList){ new p5(sketch, "sketchArea"); }
 // イベントリスナーでターゲットがボタンになってるときに、そのidに応じた処理を書けばいいのね。
 // これでうまくいく・・ああ、勉強不足ね。
 // 文字列操作最強やな
+
+// クリックで一旦すべてのボタン色をリセットしつつ、
+// 該当ボタンの色が変わるようにしたい。
 document.addEventListener("click", (e) => {
 	const targetId = e.target.id;
-	if(sketchNameList.includes(targetId)){
+	if(buttonNameList.includes(targetId)){
 		for(let i = 0; i < sketchLoopFlag.length; i++){
 			if(sketchLoopFlag[i]){
 				document.getElementById("sketch_" + i).style.display = "none";
+				document.getElementById("sketch_" + i + "_btn").style.background = nonActiveButtonColor;
 				sketchLoopFlag[i] = false;
 				break;
 			}
@@ -385,16 +684,19 @@ document.addEventListener("click", (e) => {
     newSketch.style.height = new_h.toString() + "px";
 		newSketch.style.margin = (CANVAS_HEIGHT * 0.5 - new_h * 0.5).toString() + "px " + (CANVAS_WIDTH * 0.5 - new_w * 0.5).toString() + "px";
 		sketchLoopFlag[sketchId] = true;
+		document.getElementById("sketch_" + sketchId + "_btn").style.background = activeButtonColor;
+		currentSketchId = sketchId;
 	}
 })
 
+// ラベルの表示/非表示だけやる
 // マウスオーバーとは
 document.addEventListener("mouseover", (e) => {
 	const targetId = e.target.id;
-	if(sketchNameList.includes(targetId)){
+	if(buttonNameList.includes(targetId)){
 		const sketchId = Number(targetId.split("_")[1]);
 		if(isNaN(sketchId)){ return; }
-		e.target.style.background = activeButtonPalette[sketchId];
+		document.getElementById("label_" + sketchId).style.display = "block";
 	}
 }, false)
 
@@ -402,9 +704,9 @@ document.addEventListener("mouseover", (e) => {
 // マウスアウト？？
 document.addEventListener("mouseout", (e) => {
 	const targetId = e.target.id;
-	if(sketchNameList.includes(targetId)){
+	if(buttonNameList.includes(targetId)){
 		const sketchId = Number(targetId.split("_")[1]);
 		if(isNaN(sketchId)){ return; }
-		e.target.style.background = nonActiveButtonPalette[sketchId];
+		document.getElementById("label_" + sketchId).style.display = "none";
 	}
 }, false)

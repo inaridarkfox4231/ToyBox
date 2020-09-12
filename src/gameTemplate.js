@@ -38,15 +38,22 @@ const CORRECT = 1;
 const WRONG = 2;
 
 let myGame;
+let palette = {};
 
 function setup(){
   createCanvas(AREA_WIDTH, AREA_HEIGHT);
+  createPalette();
   myGame = new Game();
 }
 
 function draw(){
   myGame.update();
   myGame.draw();
+}
+
+function createPalette(){
+  // 色を決める
+  palette.titleBG = "skyblue"; // こんな感じ
 }
 
 class Game{
@@ -89,8 +96,14 @@ class State{
   }
   initialize(){}
   keyAction(code){}
+  clickAction(x, y){}
   update(){}
   draw(){}
+  simpleShift(nextStateName){
+    // めんどくさくなってきたのでメソッド化
+    this.nextState = this.node.getState(nextStateName);
+    this.nextState.previousState = this; // あっ。。
+  }
 }
 
 class TitleState extends State{
