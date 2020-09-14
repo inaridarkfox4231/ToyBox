@@ -14,6 +14,16 @@ var myTrackSystem;
 
 var soundEnabled = true;
 
+// ここでいじる
+// 振動数いじって遊んでた
+/*
+const rootFreq = 523;
+let frequencyDiff = [];
+for(let i of [0,0,0,0,2,2,3,3,5,5,5,7,7,7,8,8,10,10,12]){ frequencyDiff.push(Math.pow(2, i / 12)); } // 短調
+//for(let i of [0,0,0,0,2,2,4,4,5,5,5,7,7,7,9,9,11,11,12]){ frequencyDiff.push(Math.pow(2, i / 12)); } // 長調
+// 音楽難しい。。ぶっちゃけよくわかんねー
+*/
+
 /* ------- Sound --------------------------------------*/
 
 var EnvelopedOscillator = function(oscillatorType, envelopeParameter) {
