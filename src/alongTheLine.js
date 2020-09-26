@@ -7,6 +7,13 @@
 // で、動く障害物とか用意して。それをうまくかわす・・みたいな？
 
 // 線分にするなら別のプログラムにするかな・・
+// 線分にしたいので別のプログラムを書きます。
+
+// うんこのほうが
+// うんこじゃない
+// この方が面白いかもね。
+
+// 以前、ボールをリフトで動かすみたいなのやろうとしてたけどこれ使えば楽に実現できるわね。
 
 const AREA_WIDTH = 640;
 const AREA_HEIGHT = 480;
@@ -33,7 +40,6 @@ function setup(){
 }
 
 function draw(){
-	background(0);
 	mySystem.update();
 	mySystem.draw();
 }
@@ -42,7 +48,17 @@ class System{
 	constructor(){
 		this.lines = [];
 		this.objects = [];
+		this.bg = createGraphics(AREA_WIDTH, AREA_HEIGHT);
+		this.prepareBackground();
 		this.properFrameCount = 0;
+	}
+	prepareBackground(){
+		let gr = this.bg;
+		gr.noStroke();
+		for(let k = 0; k < 80; k++){
+			gr.fill(60 + k * 2);
+			gr.rect(0, AREA_HEIGHT * (k / 80), AREA_WIDTH, AREA_HEIGHT / 80);
+		}
 	}
 	createLine(){
 		if(this.lines.length === LINE_CAPACITY){ return; }
@@ -51,6 +67,15 @@ class System{
   createObject(){
 		if(this.objects.length === OBJECT_CAPACITY){ return; }
 		this.objects.push(new MovingObject(Math.random() * 2 * Math.PI, 8));
+	}
+	removeCheck(){
+		// _objectについて所属している直線が消えた場合にそこをチェックする感じ。
+		for(let _object of this.objects){
+			const data = _object.belongingData;
+			if(!data.isBelonging){ continue; }
+			if(data.line.isAlive()){ continue; }
+			_object.removeLine();
+		}
 	}
 	crossingCheck(){
 		// 直線を横切る物体あったら乗っかる。
@@ -62,7 +87,7 @@ class System{
 				if(!_line.isAlive()){ continue; }
 				if(_object.isBelongingLine(_line)){ continue; } // 所属中の直線の場合はスルー
 				const proportion = getCrossing(_line, _object);
-				if(proportion < 0){ continue; }
+				if(proportion < 0 || proportion > 1){ continue; }
 				_object.setLine(_line, proportion);
 				break;
 			}
@@ -73,7 +98,9 @@ class System{
 		if(this.properFrameCount % OBJECT_CREATE_SPAN === 0){ this.createObject(); }
 		for(let _line of this.lines){ _line.update(); }
 		for(let _object of this.objects){ _object.update(); }
+		this.removeCheck();
 		this.crossingCheck();
+    // 線分が途中で消える場合、消えたフラグを立てたうえで、オブジェクトを外し、速度を補正し、そのあとで配列から排除する。
 		// あー、確かに減っていくイテレータあったらこういうミス（++を--って書いちゃう）減るわね。便利かも。
 		for(let index = this.lines.length - 1; index >= 0; index--){
 		  if(!this.lines[index].isAlive()){
@@ -88,6 +115,7 @@ class System{
 		this.properFrameCount++;
 	}
 	draw(){
+		image(this.bg, 0, 0);
 		for(let _line of this.lines){ _line.draw(); }
 		for(let _object of this.objects){ _object.draw(); }
 	}
@@ -101,7 +129,7 @@ class MovingLine{
 		this.speed = 1 + Math.random() * 2; // 直線の移動スピード
 		this.velocity = p5.Vector.fromAngle(direction, this.speed);
 		this.properFrameCount = 0;
-		this.life = Math.floor(AREA_RADIUS * 2 / this.speed) + 5;
+		this.life = Math.floor(AREA_RADIUS * 2 / this.speed) * 0.75;
 		this.alive = true;
 	}
 	isAlive(){
@@ -112,9 +140,9 @@ class MovingLine{
 	}
 	prepareEdges(direction){
 		const c = createVector(AREA_WIDTH * 0.5, AREA_HEIGHT * 0.5);
-		const u = p5.Vector.fromAngle(direction, -AREA_RADIUS);
-		const v1 = p5.Vector.fromAngle(direction + Math.PI * 0.5, AREA_RADIUS);
-		const v2 = p5.Vector.fromAngle(direction - Math.PI * 0.5, AREA_RADIUS);
+		const u = p5.Vector.fromAngle(direction, -AREA_RADIUS * 0.75);
+		const v1 = p5.Vector.fromAngle(direction + Math.PI * 0.5, AREA_RADIUS * 0.5);
+		const v2 = p5.Vector.fromAngle(direction - Math.PI * 0.5, AREA_RADIUS * 0.5);
 		this.edge1 = p5.Vector.add(c, p5.Vector.add(u, v1));
 		this.edge2 = p5.Vector.add(c, p5.Vector.add(u, v2));
 		this.previousEdge1 = this.edge1.copy();
@@ -126,7 +154,7 @@ class MovingLine{
 		this.edge1.add(this.velocity);
 		this.edge2.add(this.velocity);
 		this.properFrameCount++;
-		if(this.properFrameCount === this.life){ this.kill(); }
+		if(this.properFrameCount > this.life){ this.kill(); }
 	}
 	draw(){
 		stroke(this.lineColor);
@@ -180,9 +208,23 @@ class MovingObject{
 		data.sign = random([-1, 1]);
 		this.waitCount = 15;
 	}
+	removeLine(){
+		// 線分から離脱する。
+		// 先に速度を何とかする。
+		const direction = p5.Vector.sub(this.position, this.previousPosition).heading();
+		this.velocity.set(p5.Vector.fromAngle(direction, this.speed));
+		this.belongingData.isBelonging = false;
+		this.belongingData.line = undefined;
+		this.belongingData.proportion = undefined;
+		this.belongingData.sign = 0;
+		this.waitCount = 15;
+	}
 	calcPosition(){
 		const _line = this.belongingData.line;
 		this.belongingData.proportion += this.belongingData.sign * this.speed / (AREA_RADIUS * 2);
+		if(this.belongingData.proportion < 0 || this.belongingData.proportion > 1){
+			this.belongingData.sign *= -1; // 方向転換
+		}
 		this.position.set(p5.Vector.lerp(_line.edge1, _line.edge2, this.belongingData.proportion));
 	}
 	update(){
@@ -258,5 +300,5 @@ function getCrossing(_line, _object){
 		const det0 = (c - a) * (v - z) - (u - w) * (d - b);
     proportion = ((v - z) * (u - a) + (w - u) * (v - b)) / det0;
 	}
-	return proportion;
+	return proportion; // 0より小さいか1より大きいときもダメにする。
 }
