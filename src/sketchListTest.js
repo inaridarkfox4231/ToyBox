@@ -50,9 +50,16 @@
 // これで自由に追加できるようになった。何でもありだ。
 // もはやアクティブとかノンアクティブの色に意味はないから統一しちゃおう（いちいち考えるの面倒）。
 
+// メインスケッチでツイート画像をすべて読み込んで、
+// ツイート見せるフラグが立っているときに、
+// あ、そうか、画像専門のスケッチを立ち上げればいいのか。なんだ。
+
+// 画像だけでいいよ・・・リンクはだめ。ブロックされる。スケッチへのリンクならいいけどまあ変更とかするしな。
+
 const nonActiveButtonColor = "lemonchiffon";
 const activeButtonColor = "darkorange";
 const textBackColor = "khaki";
+// スケッチ名
 const sketchNames = ["starry", "blue&nbsp;dragon", "flip&nbsp;flop&nbsp;block", "bullet&nbsp;hell", "lets&nbsp;oekaki",
 										 "rainbow&nbsp;mosaic", "small&nbsp;fireworks", "bluesky", "minimum&nbsp;hilbert", "RED",
 										 "motion&nbsp;of&nbsp;lines"];
@@ -175,6 +182,20 @@ const mainSketch = p =>{
 				labelColor:textBackColor
 			});
 		}
+		let div2 = p.createDiv();
+		div2.parent(div1);
+		div2.id("tweetImg");
+		div2.position(0, 0);
+		div2.style("width", CANVAS_WIDTH.toString() + "px");
+		div2.style("height", CANVAS_HEIGHT.toString() + "px");
+		div2.style("display", "none");
+		// ツイート画像表示用
+		let btn1 = p.createButton("tweet");
+		btn1.id("tweetImgButton");
+		btn1.position(CANVAS_LEFT + 20, CANVAS_TOP + CANVAS_HEIGHT + 5);
+		btn1.style("width", "60px");
+		btn1.style("height", "30px");
+		btn1.style("font-size", "18px");
 	}
 	p.draw = () =>{
 		p.background(220);
@@ -215,6 +236,44 @@ const mainSketch = p =>{
 	}
 }
 
+// 縦横うまく工夫して、imgがどんなあれであっても、適切な範囲に収まるようにする。
+// displayのオンオフは別で。
+// どんな
+const tweetImg = p =>{
+	let imgs = [];
+	let normalizedWidthArray = [];
+	let normalizedHeightArray = [];
+	let startXArray = [];
+	let startYArray = [];
+	p.preload = () => {
+		for(let i = 0; i < sketchNames.length; i++){
+			imgs.push(p.loadImage("https://inaridarkfox4231.github.io/tweets/tweet" + i.toString() + ".PNG"));
+		}
+	}
+	p.setup = () => {
+	  p.createCanvas(CANVAS_WIDTH, CANVAS_HEIGHT);
+		for(let i = 0; i < imgs.length; i++){
+			const img = imgs[i];
+			const w = img.width;
+		  const h = img.height;
+			const normalizeFactor = Math.min(Math.min(CANVAS_WIDTH, w) / w, Math.min(CANVAS_HEIGHT, h) / h);
+		  const normalizedWidth = w * normalizeFactor;
+		  const normalizedHeight = h * normalizeFactor;
+		  normalizedWidthArray.push(normalizedWidth);
+		  normalizedHeightArray.push(normalizedHeight);
+		  startXArray.push((CANVAS_WIDTH - normalizedWidth) * 0.5);
+		  startYArray.push((CANVAS_HEIGHT - normalizedHeight) * 0.5);
+		}
+	}
+	p.draw = () => {
+		const id = currentSketchId;
+		if(id < 0){ return; }
+		const img = imgs[id];
+		p.clear();
+		p.image(img, startXArray[id], startYArray[id], normalizedWidthArray[id], normalizedHeightArray[id], 0, 0, img.width, img.height);
+	}
+}
+
 // -------------------------------------------------------------------------------------------------------------------------------
 
 // 以下、スケッチコード。
@@ -249,7 +308,7 @@ sketchList.push((p) =>{
 */
 
 /*
-starry. https://www.openprocessing.org/sketch/954742
+starry. https://twitter.com/inaba_darkfox/status/1301908261822578688
 f=0;
 setup=_=>{createCanvas(600, 600);background(0);strokeWeight(2);noFill()}
 draw=_=>{background(0,4);translate(300,300);g=min(a=(f%510),510-a);
@@ -281,7 +340,7 @@ sketchList.push((p) =>{
 })
 
 /*
-blue dragon: https://neort.io/art/bsvbn7c3p9f8mi6u64i0?index=5&origin=my_profile
+blue dragon: https://twitter.com/inaba_darkfox/status/1296510140867215360
 w=640;a=b=320;f=0
 setup=_=>{createCanvas(w,w)}
 draw=_=>{e=(f&1)*2-1;h=1;while(f>=h){if(!(f&h)&&(f&(h*2))){e+=4}h*=2}s=9*cos(PI*e/4);
@@ -321,7 +380,7 @@ sketchList.push((p) =>{
 })
 
 /*
-flip flop block: https://www.openprocessing.org/sketch/938699
+flip flop block: https://twitter.com/inaba_darkfox/status/1288084411951353858
 g=20;w=g*g;f=0;E=(z)=>{return 16*z*z*(1-z)*(1-z)}
 setup=()=>{createCanvas(w,w)}
 draw=()=>{background(200);
@@ -359,11 +418,11 @@ sketchList.push((p) =>{
 })
 
 /*
-bullet hell: https://www.openprocessing.org/sketch/939484
+bullet hell: https://twitter.com/inaba_darkfox/status/1296626202543677440
 w=600;f=0;g=50;setup=()=>{createCanvas(w,w)}
 draw=()=>{background(0);translate(w/2,w/2);i=100;while(i--){n=noise(i);
 s=1+n/2;t=g+99*n;p=(f/t)-floor(f/t);
-fill(0,w*p,w,255*(1-p));
+fill(0,w*p,w);
 for(c=-1.5;c<2;c++){rect(430*p,g*max(0,1-1/4/p)*c-3*s,8*s,6*s)}rotate(PI/g)}f++}
 */
 
@@ -384,7 +443,7 @@ sketchList.push((p) =>{
 			let s = 1 + n / 2;
 			let t = g + 99 * n;
 			let q = (f / t) - Math.floor(f / t);
-			p.fill(0, w * q, w, 255 * (1 - q));
+			p.fill(0, w * q, w);
 			for(let c = -1.5; c < 2; c++){
 				p.rect(430 * q, g * Math.max(0, 1 - 1 / (4 * q)) * c - 3 * s, 8 * s, 6 * s);
 			}
@@ -395,7 +454,7 @@ sketchList.push((p) =>{
 })
 
 /*
-lets oekaki: https://www.openprocessing.org/sketch/951933
+lets oekaki: https://twitter.com/inaba_darkfox/status/1299733450639814657
 t="#つぶやきProcessing #pchj03";s="140字以内にコードを収めて レッツお絵かき！";f=g=0
 setup=_=>{createCanvas(480,240);fill(0,0,64);rect(10,10,460,220);fill(255);textSize(16)}
 draw=_=>{if(t[g]){text(t[g],60+g*16,118);text(s[g],60+g*16,138)}else{noLoop()}f++;if(f%4==0){g++}}
@@ -427,14 +486,14 @@ sketchList.push((p) =>{
 })
 
 /*
-rainbow mosaic: https://www.openprocessing.org/sketch/930748
-x=320;z=16;y=x+z;u=0;v=-1;R=()=>{w=u;u=v;v=-w};f=0;g=h=1
-setup=()=>{createCanvas(640,640);colorMode(HSB,100);noStroke()}
-draw=()=>{fill(80-floor(f/16),(f*h)%100,100-(h%10));square(x,y,z);x+=u*z;y+=v*z;if(f==g){R();g+=1+floor((h++)/2)}f++;if(y==640){noLoop()}}
+rainbow mosaic: https://twitter.com/inaba_darkfox/status/1282696865666887680
+x=200;z=10;y=x+z;u=0;v=-1;R=()=>{w=u;u=v;v=-w};f=0;g=h=1
+setup=()=>{createCanvas(400,400);colorMode(HSB,100);noStroke()}
+draw=()=>{fill(80-floor(f/16),(f*h)%100,100-(h%10));square(x,y,z);x+=u*z;y+=v*z;if(f==g){R();g+=1+floor((h++)/2)}f++;if(y==400){noLoop()}}
 */
 sketchList.push((p) => {
-	let x = 320;
-	let z = 16;
+	let x = 200;
+	let z = 10;
 	let y = x + z;
 	let u = 0;
 	let v = -1;
@@ -443,7 +502,7 @@ sketchList.push((p) => {
 	let g = 1;
 	let h = 1;
 	p.setup = () =>{
-		prepareSketch(p.createCanvas(640, 640), 5);
+		prepareSketch(p.createCanvas(400, 400), 5);
 		p.colorMode(p.HSB, 100);
 		p.noStroke();
 	}
@@ -458,12 +517,12 @@ sketchList.push((p) => {
 			g += 1 + Math.floor((h++) / 2)
 		}
 		f++;
-		if(y === 640){ p.noLoop(); }
+		if(y === 400){ p.noLoop(); }
 	}
 })
 
 /*
-small fireworks: https://www.openprocessing.org/sketch/957997
+small fireworks: https://twitter.com/inaba_darkfox/status/1303866995285262336
 f=0;r=[]
 setup=_=>{createCanvas(400,400);noStroke()}
 draw=_=>{if(f%60==0){c=198;while(c--){r[c]=random()}}background(0);
@@ -501,7 +560,7 @@ sketchList.push((p) =>{
 })
 
 /*
-bluesky: https://www.openprocessing.org/sketch/850255
+bluesky: https://twitter.com/inaba_darkfox/status/1233765773815861255
 x=0;
 function setup(){ colorMode(HSB, 100); createCanvas(400,400); noStroke(); }
 function draw(){for(let i = 0;i < 400;i++){fill(55, 100 - i / 4, 100); rect(0, i,400,1);
@@ -532,7 +591,7 @@ sketchList.push((p) =>{
 })
 
 /*
-minimum hilbert: https://www.openprocessing.org/sketch/938101
+minimum hilbert: https://twitter.com/inaba_darkfox/status/1289344187121336320
 x=y=[];a=b=i=8
 T=(a,b,c,d,e)=>[a,c,b,d,b,e,a.map(u=>-u)].reduce((s,t)=>s.concat(t))
 setup=()=>{createCanvas(w=650,w);while(--i>0){u=T(y,x,0,1,0);y=T(x,y,1,0,-1);x=u}stroke(0,128,255)}
@@ -565,7 +624,7 @@ sketchList.push((p) =>{
 })
 
 /*
-RED: https://www.openprocessing.org/sketch/860480
+RED: https://twitter.com/inaba_darkfox/status/1241444729230725120
 let x = 0, y = 0, u = 0, v = 0;
 function setup(){
 	createCanvas(480, 640);
@@ -607,7 +666,7 @@ sketchList.push((p) =>{
 })
 
 /*
-motion of lines: https://www.openprocessing.org/sketch/933166
+motion of lines: https://twitter.com/inaba_darkfox/status/1283815290040537088
 s=256;k=s*2;t=0;f=()=>{}
 setup=()=>{createCanvas(k,k);f=(z,u,j)=>{z=z%360;a=1-pow(max(0,1-z/120),5);b=max(0,pow(z/120-2,5));
 stroke(j*s,u,s,(a-b)*s);line(b*k,u*2,a*k,u*2);
@@ -647,8 +706,10 @@ for(let i = 0; i < sketchList.length; i++){ buttonNameList[i] = "sketch_" + i + 
 
 let sketchLoopFlag = new Array(sketchList.length);
 sketchLoopFlag.fill(false);
+tweetShowFlag = false; // ボタンでオンオフ切り替える。
 
 new p5(mainSketch);
+new p5(tweetImg, "tweetImg");
 for(let sketch of sketchList){ new p5(sketch, "sketchArea"); }
 
 // イベントリスナーでターゲットがボタンになってるときに、そのidに応じた処理を書けばいいのね。
@@ -659,6 +720,17 @@ for(let sketch of sketchList){ new p5(sketch, "sketchArea"); }
 // 該当ボタンの色が変わるようにしたい。
 document.addEventListener("click", (e) => {
 	const targetId = e.target.id;
+	// ツイートのオンオフボタンの場合はそれ切り替えてさようならする。
+	// フラグはもう要らない。cssを直接取得すればいいので。
+	if(targetId === "tweetImgButton"){
+		if(currentSketchId < 0){ return; }
+		let tweetImg = document.getElementById("tweetImg");
+		const tweetImgCss = getComputedStyle(tweetImg, null);
+		const state = tweetImgCss.getPropertyValue("display");
+		if(state === "none"){ tweetImg.style.display = "block"; }else{ tweetImg.style.display = "none"; }
+		return;
+	}
+	// 以下、スケッチ切り替えボタンの場合。
 	if(buttonNameList.includes(targetId)){
 		for(let i = 0; i < sketchLoopFlag.length; i++){
 			if(sketchLoopFlag[i]){
