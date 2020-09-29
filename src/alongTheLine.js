@@ -12,11 +12,22 @@
 // うんこのほうが
 // うんこじゃない
 // この方が面白いかもね。
+// エレベータみたいのとか、あとは見た目工夫するとかしたら面白いかも？円追加するのも考えてもいいかもね。
 
-// 以前、ボールをリフトで動かすみたいなのやろうとしてたけどこれ使えば楽に実現できるわね。
+// ていうかやっぱ色が見えづらいから統一した方が逆に見栄えがいいかも。あと半径変化させて生きてる感じ出したら面白いかも。
+// パーティクル出すとかいろいろ工夫できる。
 
-const AREA_WIDTH = 640;
-const AREA_HEIGHT = 480;
+// なんか不細工なforkあったけど無視。
+// さてと。
+// どういう具合にするかはここに書くと長くなるので別のとこに書く。
+
+// along the lineはゲームのタイトルみたいな感じだからこれでいいよ。
+
+// 大幅に変更する。まず、lineをfigureから継承させる。で、objectについては円で固定。そこはもう工夫しない。
+// lineに色を持たせていろいろ工夫できるように・・タイプにより色を分ける方向で。
+
+const AREA_WIDTH = 800;
+const AREA_HEIGHT = 640;
 const AREA_RADIUS = Math.sqrt(Math.pow(AREA_WIDTH, 2) + Math.pow(AREA_HEIGHT, 2)) * 0.5;
 
 const LINE_CAPACITY = 20;
@@ -126,7 +137,7 @@ class MovingLine{
 		this.id = MovingLine.id++; // 識別用。乗っかっている直線には渡らないので。それを知るための。
 		this.lineColor = color(random(LINE_PALETTE));
 		this.prepareEdges(direction);
-		this.speed = 1 + Math.random() * 2; // 直線の移動スピード
+		this.speed = 1 + Math.random() * 1; // 直線の移動スピード
 		this.velocity = p5.Vector.fromAngle(direction, this.speed);
 		this.properFrameCount = 0;
 		this.life = Math.floor(AREA_RADIUS * 2 / this.speed) * 0.75;
@@ -141,10 +152,11 @@ class MovingLine{
 	prepareEdges(direction){
 		const c = createVector(AREA_WIDTH * 0.5, AREA_HEIGHT * 0.5);
 		const u = p5.Vector.fromAngle(direction, -AREA_RADIUS * 0.75);
-		const v1 = p5.Vector.fromAngle(direction + Math.PI * 0.5, AREA_RADIUS * 0.5);
-		const v2 = p5.Vector.fromAngle(direction - Math.PI * 0.5, AREA_RADIUS * 0.5);
+		const v1 = p5.Vector.fromAngle(direction + Math.PI * 0.5, AREA_RADIUS * 0.3 + Math.random() * 0.2);
+		const v2 = p5.Vector.fromAngle(direction - Math.PI * 0.5, AREA_RADIUS * 0.3 + Math.random() * 0.2);
 		this.edge1 = p5.Vector.add(c, p5.Vector.add(u, v1));
 		this.edge2 = p5.Vector.add(c, p5.Vector.add(u, v2));
+		this.length = p5.Vector.dist(this.edge1, this.edge2);
 		this.previousEdge1 = this.edge1.copy();
 		this.previousEdge2 = this.edge2.copy();
 	}
@@ -221,7 +233,7 @@ class MovingObject{
 	}
 	calcPosition(){
 		const _line = this.belongingData.line;
-		this.belongingData.proportion += this.belongingData.sign * this.speed / (AREA_RADIUS * 2);
+		this.belongingData.proportion += this.belongingData.sign * this.speed / _line.length;
 		if(this.belongingData.proportion < 0 || this.belongingData.proportion > 1){
 			this.belongingData.sign *= -1; // 方向転換
 		}
