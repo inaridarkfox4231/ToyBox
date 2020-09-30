@@ -3,18 +3,25 @@
 // レールは障害物であり進むための指針でもあり
 // 敵でもあり味方。そんなイメージで。
 
+// いい感じですねー
+
 const AREA_WIDTH = 800;
 const AREA_HEIGHT = 640;
 const AREA_RADIUS = Math.sqrt(Math.pow(AREA_WIDTH, 2) + Math.pow(AREA_HEIGHT, 2)) * 0.5;
 
-const RAIL_CAPACITY = 5;
-const OBJECT_CAPACITY = 5;
+const RAIL_CAPACITY = 20;
+const OBJECT_CAPACITY = 20;
 
-// 出現時にパーティクル出そうぜ！！！！
 const RAIL_CREATE_SPAN = 30;
 const RAIL_APPEAR_SPAN = 30;  // 出現モーション
+const RAIL_VANISH_SPAN = 30; // 消滅モーション
 const OBJECT_CREATE_SPAN = 30;
 const OBJECT_APPEAR_SPAN = 30; // 出現モーション
+
+// パーティクルは要相談って感じ
+// 少なくともObjectが消えるときは出したいね
+// aliveの他に、完全に消滅した後で消えるvanishってのを用意して、vanishがtrueになったときに
+// 配列から外すようにするといいかも。
 
 const RAIL_DIRECTIONCHANGE_SPAN = 10; // 折り返すときにしばらくの間判定しないようにする
 const OBJECT_UNRIDE_SPAN = 10; // レールに乗れないフレーム数を設けておく（同じレールに再び乗っちゃうのを防ぐ）
@@ -78,7 +85,7 @@ class System{
 		}
 		let direction = p5.Vector.sub(p2, p1).heading() + Math.PI * 0.5;
 		let speed = 1 + Math.random();
-		let newRail = new LineRail(p1, p2, p5.Vector.fromAngle(direction, speed), "normal", 300);
+		let newRail = new LineRail("normal", 240 + 120 * Math.random(), p1, p2, p5.Vector.fromAngle(direction, speed));
 		newRail.setMove((_line) => {
 			_line.previousP1.set(_line.p1);
 			_line.previousP2.set(_line.p2);
@@ -100,7 +107,7 @@ class System{
 		let newObject = new MovingObject(p, Math.random() * 2 * Math.PI, 2 + 3 * Math.random());
 		this.objects.push(newObject);
 	}
-	removeCheck(){
+	derailmentCheck(){
 		// _objectについて所属している直線が消えた場合にそこをチェックする感じ。
 		for(let _object of this.objects){
 			const data = _object.belongingData;
@@ -112,11 +119,11 @@ class System{
 	crossingCheck(){
 		// 直線を横切る物体あったら乗っかる。
 		for(let _object of this.objects){
-			if(_object.waitCount > 0 || !_object.isVisible() || !_object.isAlive()){ continue; }
+			if(_object.waitCount > 0 || !_object.isVisible()){ continue; }
 			for(let _rail of this.rails){
 				// どれかに乗っかるならそこに乗っかる。あとは調べない。breakして次の物体に移る。
 				// _objectのpositionとpreviousPositionを結ぶ線分が横切るかどうかで判定する。外積の積を取る。
-				if(!_rail.isAlive()){ continue; }
+				if(!_rail.isVisible()){ continue; }
 				if(_object.isBelongingRail(_rail)){ continue; } // 所属中のレールの場合はスルー
 				const proportion = _rail.getCrossing(_object);
 				if(proportion < 0 || proportion > 1){ continue; }
@@ -125,17 +132,13 @@ class System{
 			}
 		}
 	}
-	update(){
-		if(this.properFrameCount % RAIL_CREATE_SPAN === 0){ this.createRail(); }
-		if(this.properFrameCount % OBJECT_CREATE_SPAN === 0){ this.createObject(); }
-		for(let _rail of this.rails){ _rail.update(); }
-		for(let _object of this.objects){ _object.update(); }
-		this.removeCheck();
-		this.crossingCheck();
-    // 線分が途中で消える場合、消えたフラグを立てたうえで、オブジェクトを外し、速度を補正し、そのあとで配列から排除する。
+	remove(){
+		// れもヴぇ
+		// 線分が途中で消える場合、消えたフラグを立てたうえで、オブジェクトを外し、速度を補正し、そのあとで配列から排除する。
+		// 修正。vanishしたところで排除する。
 		// あー、確かに減っていくイテレータあったらこういうミス（++を--って書いちゃう）減るわね。便利かも。
 		for(let index = this.rails.length - 1; index >= 0; index--){
-		  if(!this.rails[index].isAlive()){
+		  if(this.rails[index].isVanish()){
 				this.rails.splice(index, 1);
 			}
 		}
@@ -144,6 +147,15 @@ class System{
 				this.objects.splice(index, 1);
 			}
 		}
+	}
+	update(){
+		if(this.properFrameCount % RAIL_CREATE_SPAN === 0){ this.createRail(); }
+		if(this.properFrameCount % OBJECT_CREATE_SPAN === 0){ this.createObject(); }
+		for(let _rail of this.rails){ _rail.update(); }
+		for(let _object of this.objects){ _object.update(); }
+		this.derailmentCheck();
+		this.crossingCheck();
+    this.remove();
 		this.properFrameCount++;
 	}
 	draw(){
@@ -167,26 +179,35 @@ class System{
 // で、それに対してproportionから位置を計算する機構が備わっていてレールの上の点っていうのはそれに基づいて位置を変える。
 // アクションゲームのリフトみたいな？
 // で、移動に関してはmoveというクラスで制御・・するはず。オブジェクトでもいいか。undefinedの場合位置の更新はしない。
+
+// 流れ。まずalive:trueのvisible:falseで始まってそのあとalive:trueとvisible:trueになってそのあとで
+// 両方falseになってそれからvanishがtrueになって配列から排除。
 class Rail{
-  constructor(){
+  constructor(attribute, life){
 		this.id = Rail.id++;
     this.type = undefined; // 円とか線分とか。
-    this.attribute = undefined; // 属性に応じて色が決まる感じ。
     this.properFrameCount = 0;
     this.alive = true;
 		this.visible = false;
     // pointsやめて個別にする。
     this.move = undefined;
 		this.length = 0;
-		this.life = Infinity;
 		this.appearCount = 0;
 		this.waitCount = 0;
+		this.vanish = false;
+		this.vanishCount = RAIL_VANISH_SPAN;
+		this.attribute = attribute; // 属性に応じて色が決まる感じ。
+		this.life = life;
+		this.lineColor = Rail.getColorFromAttribute(attribute);
   }
   isAlive(){
     return this.alive;
   }
 	isVisible(){
 		return this.visible;
+	}
+	isVanish(){
+		return this.vanish;
 	}
 	appearCheck(){
 		if(this.appearCount < RAIL_APPEAR_SPAN){
@@ -197,8 +218,15 @@ class Rail{
 		}
 		return this.visible;
 	}
+	vanishCheck(){
+		this.vanishCount--;
+	  if(this.vanishCount === 0){
+			this.vanish = true;
+		}
+	}
   kill(){
     this.alive = false;
+		this.visible = false;
   }
 	setMove(_move){
 		this.move = _move;
@@ -212,14 +240,34 @@ class Rail{
 	}
 	update(){
 		// 多分moveとか動き関連。位置の変更はここで。
+		if(!this.alive){ this.vanishCheck(); return; } // vanishするのはここで判定
 		if(this.waitCount > 0){ this.waitCount--; }
 		if(!this.appearCheck()){ return; }
 		this.move(this);
 		this.properFrameCount++;
 		if(this.properFrameCount > this.life){ this.kill(); }
 	}
+	drawRail(){
+		// 通常の描画処理。
+	}
+	drawAppearingRail(prg){
+		// prgは操作してイージングをかけられる。0から1に増加していく。
+	}
+	drawVanishingRail(prg){
+		// prgは操作してイージングをかけられる。1から0に減少していく。
+	}
   draw(){
 		// 図形の描画。
+		stroke(this.lineColor); // ああここ文字列でいいのね・・初めて知った。
+		if(this.visible){
+			this.drawRail(); return;
+		}
+		if(!this.alive){
+			const prgForVanish = this.vanishCount / RAIL_VANISH_SPAN;
+			this.drawVanishingRail(prgForVanish); return;
+		}
+		const prgForAppear = this.appearCount / RAIL_APPEAR_SPAN;
+		this.drawAppearingRail(prgForAppear); return;
 	}
   static getColorFromAttribute(attr){
     switch(attr){
@@ -232,17 +280,15 @@ class Rail{
 Rail.id = 0;
 
 class LineRail extends Rail{
-	constructor(p1, p2, v, attribute = "normal", life = Infinity){
-		super();
+	constructor(attribute, life, p1, p2, v){
+		super(attribute, life);
+		this.type = "line";
 		this.p1 = p1;
 		this.p2 = p2;
 		this.previousP1 = p1.copy();
 		this.previousP2 = p2.copy();
 		this.velocity = v;
 		this.length = p5.Vector.dist(p1, p2);
-		this.type = "line";
-		this.attribute = attribute;
-		this.railColor = Rail.getColorFromAttribute(attribute);
 		this.life = life;
 	}
 	calcPositionFromProportion(proportion){
@@ -264,16 +310,19 @@ class LineRail extends Rail{
 		}
 		return proportion; // 0より小さいか1より大きいときもダメにする。
 	}
-	draw(){
+	prepareStrokeColor(){
 		stroke(this.railColor);
-		if(this.visible){
-			// まあこの方がいいでしょ。
-			line(this.p1.x, this.p1.y, this.p2.x, this.p2.y);
-			return;
-		}
-		const prg = this.appearCount / RAIL_APPEAR_SPAN;
-		// ここでイージングさせたら面白そう
+	}
+	drawRail(){
+		line(this.p1.x, this.p1.y, this.p2.x, this.p2.y);
+	}
+	drawAppearingRail(prg){
+		prg = prg * prg * (3.0 - 2.0 * prg);
 		line(this.p1.x, this.p1.y, this.p1.x + (this.p2.x - this.p1.x) * prg, this.p1.y + (this.p2.y - this.p1.y) * prg);
+	}
+	drawVanishingRail(prg){
+		prg = prg * prg * (3.0 - 2.0 * prg);
+		line(this.p2.x, this.p2.y, this.p2.x + (this.p1.x - this.p2.x) * prg, this.p2.y + (this.p1.y - this.p2.y) * prg);
 	}
 }
 
