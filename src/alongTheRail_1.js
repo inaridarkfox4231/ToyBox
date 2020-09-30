@@ -10,8 +10,8 @@ const AREA_WIDTH = 800;
 const AREA_HEIGHT = 640;
 const AREA_RADIUS = Math.sqrt(Math.pow(AREA_WIDTH, 2) + Math.pow(AREA_HEIGHT, 2)) * 0.5;
 
-const RAIL_CAPACITY = 20;
-const OBJECT_CAPACITY = 20;
+const RAIL_CAPACITY = 15;
+const OBJECT_CAPACITY = 15;
 
 const RAIL_CREATE_SPAN = 30;
 const RAIL_APPEAR_SPAN = 30;  // 出現モーション
@@ -37,6 +37,8 @@ const RAIL_STROKEWEIGHT = 3; // レールの太さ
 const KILL_RAIL_COLOR = "white"; // 殺すレール
 const NORMAL_RAIL_COLOR = "lightgreen" // のっかるレール
 const NORMAL_OBJECT_COLOR = "orange"; // 通常時のオブジェクトの色
+
+// typeプロパティをやめて、reverseにする。reverseがtrueの場合は往復するが、そうでない場合は単純に1を足したり引いたりする。
 
 let mySystem;
 
@@ -74,7 +76,7 @@ class System{
 			}
 		}
 	}
-	createRail(){
+	createLineRail(){
 		if(this.rails.length === RAIL_CAPACITY){ return; }
 		// ここでレールを作る。点とか指定する。速度とか。とりあえずデモでは端っこで折り返して勝手に消える感じでいいんじゃない。
 		let p1, p2;
@@ -101,6 +103,18 @@ class System{
 			}
 		});
 		this.rails.push(newRail);
+	}
+	createCircleRail(){
+		if(this.rails.length === RAIL_CAPACITY){ return; }
+		let c = createVector(AREA_WIDTH * (0.3 + Math.random() * 0.4), AREA_HEIGHT * (0.3 + Math.random() * 0.4));
+		let v = p5.Vector.fromAngle(Math.PI * 2 * Math.random(), 1);
+		let r = Math.min(AREA_WIDTH, AREA_HEIGHT) * (0.05 + 0.2 * Math.random());
+		let newCircle = new CircleRail("normal", 240, c, v, r);
+		newCircle.setMove((_circle) => {
+			_circle.previousCenter.set(_circle.center);
+			_circle.center.add(_circle.velocity);
+		})
+		this.rails.push(newCircle);
 	}
   createObject(){
 		if(this.objects.length === OBJECT_CAPACITY){ return; }
@@ -151,8 +165,16 @@ class System{
 		}
 	}
 	update(){
-		if(this.properFrameCount % RAIL_CREATE_SPAN === 0){ this.createRail(); }
-		if(this.properFrameCount % OBJECT_CREATE_SPAN === 0){ this.createObject(); }
+		if(this.properFrameCount % RAIL_CREATE_SPAN === 0){
+			if(Math.random() < 0.5){
+				this.createLineRail();
+			}else{
+			  this.createCircleRail();
+			}
+		}
+		if(this.properFrameCount % OBJECT_CREATE_SPAN === 0){
+			this.createObject();
+		}
 		for(let _rail of this.rails){ _rail.update(); }
 		for(let _object of this.objects){ _object.update(); }
 		this.derailmentCheck();
@@ -187,7 +209,6 @@ class System{
 class Rail{
   constructor(attribute, life){
 		this.id = Rail.id++;
-    this.type = undefined; // 円とか線分とか。
     this.properFrameCount = 0;
     this.alive = true;
 		this.visible = false;
@@ -197,7 +218,7 @@ class Rail{
 		this.appearCount = 0;
 		this.waitCount = 0;
 		this.vanish = false;
-		this.vanishCount = RAIL_VANISH_SPAN;
+		this.vanishCount = 0;
 		this.attribute = attribute; // 属性に応じて色が決まる感じ。
 		this.life = life;
 		this.lineColor = Rail.getColorFromAttribute(attribute);
@@ -221,9 +242,11 @@ class Rail{
 		return this.visible;
 	}
 	vanishCheck(){
-		this.vanishCount--;
-	  if(this.vanishCount === 0){
-			this.vanish = true;
+		if(this.vanishCount < RAIL_VANISH_SPAN){
+			this.vanishCount++;
+			if(this.vanishCount === RAIL_VANISH_SPAN){
+				this.vanish = true;
+			}
 		}
 	}
   kill(){
@@ -284,7 +307,7 @@ Rail.id = 0;
 class LineRail extends Rail{
 	constructor(attribute, life, p1, p2, v){
 		super(attribute, life);
-		this.type = "line";
+		this.reverse = true;
 		this.p1 = p1;
 		this.p2 = p2;
 		this.previousP1 = p1.copy();
@@ -320,7 +343,7 @@ class LineRail extends Rail{
 	}
 	drawVanishingRail(prg){
 		prg = prg * prg * (3.0 - 2.0 * prg);
-		line(this.p2.x, this.p2.y, this.p2.x + (this.p1.x - this.p2.x) * prg, this.p2.y + (this.p1.y - this.p2.y) * prg);
+		line(this.p1.x + (this.p2.x - this.p1.x) * prg, this.p1.y + (this.p2.y - this.p1.y) * prg, this.p2.x, this.p2.y);
 	}
 }
 
@@ -333,35 +356,41 @@ class SquareRail extends Rail{
 }
 
 class CircleRail extends Rail{
-  constructor(attirbute, life, c, v, r){
+  constructor(attribute, life, c, v, r){
 		super(attribute, life);
-		this.type = "circle";
+		this.reverse = false;
 		this.center = c;
 		this.radius = r;
 		this.previousCenter = c.copy();
 		this.velocity = v;
+		this.length = 2 * Math.PI * r;
 	}
 	calcPositionFromProportion(proportion){
-		return p5.Vector.add(this.center, p5.Vector.fromAngle(proportion * 2 * Math.PI, this.radius));
+		const angle = proportion * 2 * Math.PI;
+		return createVector(this.center.x + this.radius * Math.cos(angle), this.center.y + this.radius * Math.sin(angle));
 	}
 	getCrossing(_object){
 		const flag_previous = (p5.Vector.dist(this.previousCenter, _object.previousPosition) > this.radius ? 1 : -1);
-		const flag_current = (p5.Vector.dist(this.center, _object.position) ? 1 : -1);
+		const flag_current = (p5.Vector.dist(this.center, _object.position) > this.radius ? 1 : -1);
 		let proportion = -1;
 		if(flag_previous * flag_current < 0){
-			// 線分と円弧の交点を求めるめんどくさい計算
+			// 線分と円弧の交点を求めるめんどくさい計算。
 			const p = _object.position;
 			const q = _object.previousPosition;
 			const c = this.center;
+			const e = this.previousCenter;
 			const r = this.radius;
-			const coeffA = p5.Vector.sub(p, q).magSq();
-			const coeffB = p5.Vector.dot(p5.Vector.sub(p, c), p5.Vector.sub(q, p));
-			const coeffC = p5.Vector.sub(p, c).magSq() - r * r;
-			const det = coeffB * coeffB - coeffA * coeffC;
-			const l1 = (-coeffB + Math.sqrt(det)) / coeffA;
-			const l2 = (-coeffB - Math.sqrt(det)) / coeffA;
+			const xi = p5.Vector.sub(c, p);
+			const nu = p5.Vector.sub(p5.Vector.sub(p, q), p5.Vector.sub(c, e))
+			const coeffA = nu.magSq();
+			const coeffB = p5.Vector.dot(xi, nu);
+			const coeffC = xi.magSq() - r * r;
+			const coeffD = Math.sqrt(coeffB * coeffB - coeffA * coeffC);
+			const l1 = (-coeffB + coeffD) / coeffA;
+			const l2 = (-coeffB - coeffD) / coeffA;
 			const l = (l1 > 0 && l1 < 1 ? l1 : l2);
-			proportion = p5.Vector.sub(p5.Vector.lerp(p, q, l) - c).heading();
+			proportion = p5.Vector.sub(p5.Vector.lerp(p, q, l), c).heading() * 0.5 / Math.PI;
+			if(proportion < 0){ proportion += 1; }
 		}
 		return proportion;
 	}
@@ -440,8 +469,15 @@ class MovingObject{
 		const _rail = this.belongingData.rail;
 		let p = this.belongingData.proportion;
 		p += this.belongingData.sign * this.speed / _rail.length;
-		if(p < 0 || p > 1){ this.belongingData.sign *= -1; } // 方向転換
-		p = constrain(p, 0, 1);
+		if(p < 0 || p > 1){
+			if(_rail.reverse){
+			  this.belongingData.sign *= -1; // reverse.
+			  p = constrain(p, 0, 1);
+			}else{
+				if(p < 0){ p += 1; }
+				if(p > 1){ p -= 1; }
+			}
+		}
 		this.belongingData.proportion = p;
 		this.position.set(_rail.calcPositionFromProportion(p));
 	}
