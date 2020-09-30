@@ -245,7 +245,7 @@ class Rail{
 		if(!this.alive){ this.vanishCheck(); return; } // vanishするのはここで判定
 		if(this.waitCount > 0){ this.waitCount--; }
 		if(!this.appearCheck()){ return; }
-		this.move(this);
+		if(this.move !== undefined){ this.move(this); }
 		this.properFrameCount++;
 		if(this.properFrameCount > this.life){ this.kill(); }
 	}
@@ -291,7 +291,6 @@ class LineRail extends Rail{
 		this.previousP2 = p2.copy();
 		this.velocity = v;
 		this.length = p5.Vector.dist(p1, p2);
-		this.life = life;
 	}
 	calcPositionFromProportion(proportion){
 		return p5.Vector.lerp(this.p1, this.p2, proportion);
@@ -311,9 +310,6 @@ class LineRail extends Rail{
 	    proportion = ((v - z) * (u - a) + (w - u) * (v - b)) / det;
 		}
 		return proportion; // 0より小さいか1より大きいときもダメにする。
-	}
-	prepareStrokeColor(){
-		stroke(this.railColor);
 	}
 	drawRail(){
 		line(this.p1.x, this.p1.y, this.p2.x, this.p2.y);
@@ -337,7 +333,49 @@ class SquareRail extends Rail{
 }
 
 class CircleRail extends Rail{
-
+  constructor(attirbute, life, c, v, r){
+		super(attribute, life);
+		this.type = "circle";
+		this.center = c;
+		this.radius = r;
+		this.previousCenter = c.copy();
+		this.velocity = v;
+	}
+	calcPositionFromProportion(proportion){
+		return p5.Vector.add(this.center, p5.Vector.fromAngle(proportion * 2 * Math.PI, this.radius));
+	}
+	getCrossing(_object){
+		const flag_previous = (p5.Vector.dist(this.previousCenter, _object.previousPosition) > this.radius ? 1 : -1);
+		const flag_current = (p5.Vector.dist(this.center, _object.position) ? 1 : -1);
+		let proportion = -1;
+		if(flag_previous * flag_current < 0){
+			// 線分と円弧の交点を求めるめんどくさい計算
+			const p = _object.position;
+			const q = _object.previousPosition;
+			const c = this.center;
+			const r = this.radius;
+			const coeffA = p5.Vector.sub(p, q).magSq();
+			const coeffB = p5.Vector.dot(p5.Vector.sub(p, c), p5.Vector.sub(q, p));
+			const coeffC = p5.Vector.sub(p, c).magSq() - r * r;
+			const det = coeffB * coeffB - coeffA * coeffC;
+			const l1 = (-coeffB + Math.sqrt(det)) / coeffA;
+			const l2 = (-coeffB - Math.sqrt(det)) / coeffA;
+			const l = (l1 > 0 && l1 < 1 ? l1 : l2);
+			proportion = p5.Vector.sub(p5.Vector.lerp(p, q, l) - c).heading();
+		}
+		return proportion;
+	}
+	drawRail(){
+		circle(this.center.x, this.center.y, this.radius * 2);
+	}
+	drawAppearingRail(prg){
+		prg = prg * prg * (3.0 - 2.0 * prg);
+		arc(this.center.x, this.center.y, this.radius * 2, this.radius * 2, 0, prg * 2 * Math.PI);
+	}
+	drawVanishingRail(prg){
+		prg = prg * prg * (3.0 - 2.0 * prg);
+		arc(this.center.x, this.center.y, this.radius * 2, this.radius * 2, prg * 2 * Math.PI, 2 * Math.PI);
+	}
 }
 
 class ArcRail extends Rail{
