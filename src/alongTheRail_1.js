@@ -4,6 +4,7 @@
 // 敵でもあり味方。そんなイメージで。
 
 // いい感じですねー
+// 消滅モーション作った。あとはパーティクル。
 
 const AREA_WIDTH = 800;
 const AREA_HEIGHT = 640;
@@ -17,6 +18,7 @@ const RAIL_APPEAR_SPAN = 30;  // 出現モーション
 const RAIL_VANISH_SPAN = 30; // 消滅モーション
 const OBJECT_CREATE_SPAN = 30;
 const OBJECT_APPEAR_SPAN = 30; // 出現モーション
+const OBJECT_VANISH_SPAN = 30; // 消滅モーション
 
 // パーティクルは要相談って感じ
 // 少なくともObjectが消えるときは出したいね
@@ -143,7 +145,7 @@ class System{
 			}
 		}
 		for(let index = this.objects.length - 1; index >= 0; index--){
-			if(!this.objects[index].isAlive()){
+			if(this.objects[index].isVanish()){
 				this.objects.splice(index, 1);
 			}
 		}
@@ -356,12 +358,17 @@ class MovingObject{
 		this.belongingData = {isBelonging:false, rail:undefined, proportion:undefined, sign:0};
 		this.waitCount = 0;
     this.bodyColor = color(NORMAL_OBJECT_COLOR);
+		this.vanish = false;
+		this.vanishCount = OBJECT_VANISH_SPAN;
 	}
 	isAlive(){
 		return this.alive;
 	}
 	isVisible(){
 		return this.visible;
+	}
+	isVanish(){
+		return this.vanish;
 	}
 	isBelongingRail(_rail){
 		// 所属している直線ならtrueを返す。
@@ -370,6 +377,7 @@ class MovingObject{
 	}
 	kill(){
 		this.alive = false;
+		this.visible = false;
 	}
 	setRail(_rail, proportion){
 		let data = this.belongingData;
@@ -408,7 +416,14 @@ class MovingObject{
 		}
 		return this.visible;
 	}
+	vanishCheck(){
+		this.vanishCount--;
+		if(this.vanishCount === 0){
+			this.vanish = true;
+		}
+	}
 	update(){
+		if(!this.alive){ this.vanishCheck(); return; }
 		if(this.waitCount > 0){ this.waitCount--; }
 
 		// appearするかどうかチェック。その間properFrameCountは変化なし。
@@ -422,7 +437,7 @@ class MovingObject{
 			// ない場合は普通に速度を足す。
 			this.position.add(this.velocity);
 		}
-		if(this.position.x < -5 || this.position.x > AREA_WIDTH + 5 || this.position.y < -5 || this.position.y > AREA_HEIGHT + 5){ this.kill(); }
+		if(this.position.x < 0 || this.position.x > AREA_WIDTH || this.position.y < 0 || this.position.y > AREA_HEIGHT){ this.kill(); }
 		this.properFrameCount++;
 	}
 	draw(){
@@ -431,9 +446,15 @@ class MovingObject{
 			circle(this.position.x, this.position.y, this.radius * 2);
 			return;
 		}
-		let prg = (this.appearCount < OBJECT_APPEAR_SPAN ? this.appearCount / OBJECT_APPEAR_SPAN : 1);
+		if(!this.alive){
+			let prgForVanish = this.vanishCount / OBJECT_VANISH_SPAN;
+			prgForVanish = prgForVanish * prgForVanish;
+			circle(this.position.x, this.position.y, this.radius * 2 * prgForVanish);
+			return;
+		}
+		let prgForAppear = this.appearCount / OBJECT_APPEAR_SPAN;
 		// ここprgイージングさせてもいいかも
-		circle(this.position.x, this.position.y, this.radius * 2 * prg);
+		circle(this.position.x, this.position.y, this.radius * 2 * prgForAppear);
 	}
 }
 
