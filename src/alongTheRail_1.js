@@ -128,6 +128,35 @@ class System{
 		})
 		this.rails.push(newCircle);
 	}
+	createArcRail(){
+		// 角速度も追加～
+		if(this.rails.length === RAIL_CAPACITY){ return; }
+		let c = createVector(AREA_WIDTH * (0.3 + Math.random() * 0.4), AREA_HEIGHT * (0.3 + Math.random() * 0.4));
+		let v = p5.Vector.fromAngle(Math.PI * 2 * Math.random(), 2.5);
+		let r = Math.min(AREA_WIDTH, AREA_HEIGHT) * (0.05 + 0.2 * Math.random());
+		let newArc = new ArcRail("normal", 330, c, v, r, 2 * Math.PI * Math.random(), Math.PI * (0.2 + 1.6 * Math.random()),
+		                         (1 + Math.random()) * random([1, -1]) * 0.01);
+		newArc.setMove((_arc) => {
+			_arc.t1 += _arc.angleSpeed;
+			_arc.t2 += _arc.angleSpeed;
+			_arc.previousCenter.set(_arc.center);
+			_arc.center.add(_arc.velocity);
+			// めんどくさいので円の場合の反射処理を援用する。
+			const {x, y} = _arc.center;
+			const {x:vx, y:vy} = _arc.velocity;
+			const r = _arc.radius;
+			if(x - r < 0 || x + r > AREA_WIDTH){
+				const diffX = (x - r < 0 ? (r - x) / vx : (AREA_WIDTH - r - x) / vx);
+				_arc.center.add(p5.Vector.mult(_arc.velocity, diffX));
+				_arc.velocity.x *= -1;
+			}else if(y - r < 0 || y + r > AREA_HEIGHT){
+				const diffY = (y - r < 0 ? (r - y) / vy : (AREA_HEIGHT - r - y) / vy);
+				_arc.center.add(p5.Vector.mult(_arc.velocity, diffY));
+				_arc.velocity.y *= -1;
+			}
+		})
+		this.rails.push(newArc);
+	}
   createObject(){
 		if(this.objects.length === OBJECT_CAPACITY){ return; }
 		// ここでオブジェクトを作る。位置とか指定する。
@@ -161,7 +190,7 @@ class System{
 		}
 	}
 	remove(){
-		// れもヴぇ
+		// remove.
 		// 線分が途中で消える場合、消えたフラグを立てたうえで、オブジェクトを外し、速度を補正し、そのあとで配列から排除する。
 		// 修正。vanishしたところで排除する。
 		// あー、確かに減っていくイテレータあったらこういうミス（++を--って書いちゃう）減るわね。便利かも。
@@ -178,10 +207,13 @@ class System{
 	}
 	update(){
 		if(this.properFrameCount % RAIL_CREATE_SPAN === 0){
-			if(Math.random() < 0.5){
+			const rdm = Math.random();
+			if(rdm < 0.4){
 				this.createLineRail();
-			}else{
+			}else if(rdm < 0.7){
 			  this.createCircleRail();
+			}else{
+				this.createArcRail();
 			}
 		}
 		if(this.properFrameCount % OBJECT_CREATE_SPAN === 0){
@@ -359,13 +391,9 @@ class LineRail extends Rail{
 	}
 }
 
-class TriangleRail extends Rail{
+class TriangleRail extends Rail{}
 
-}
-
-class SquareRail extends Rail{
-
-}
+class SquareRail extends Rail{}
 
 class CircleRail extends Rail{
   constructor(attribute, life, c, v, r){
@@ -419,8 +447,70 @@ class CircleRail extends Rail{
 	}
 }
 
+// ある角度に対して0～2*PI未満、を与えてその範囲で動かす感じ。
+// 算出した角度を2PIの足し引きで定めた範囲に落として・・そのうえで交わるかどうか判断する感じね。
+// たとえばtからt+PIだったら・・
+// proportionの算出計算で0～2PIが出るんだけど、t～t+Aでtが増加したり減少したりっていうのを考えた時に・・いや、いいや、
+// 常にt～t+Aみたいな感じで考える、で、0～2PIに落としてから・・
+// 内積使った方が楽だと思う。lerpで点出したら中心からのベクトル取って正規化して、弧の真ん中に向かう単位ベクトルと内積して、
+// そうするとcosの値が出るからそれがある値以上なら弧の上って出るからそれ使った方が明らかに楽。あとは・・
+// headingで出した角度をt～t+Aに落とした方が簡単そう・・t～t+2PIに落として。そうすればproportionもすぐ出るし判定も一瞬。それで行こう。
 class ArcRail extends Rail{
-
+	constructor(attribute, life, c, v, r, t, diff, angleSpeed = 0){
+		super(attribute, life);
+		this.reverse = true;
+		this.center = c;
+		this.previousCenter = c.copy();
+		this.velocity = v;
+		this.radius = r;
+		this.length = 2 * diff * r;
+		this.t1 = t;
+		this.t2 = t + diff;
+		this.angleSpeed = angleSpeed;
+	}
+	calcPositionFromProportion(proportion){
+		let angle = this.t1 + proportion * (this.t2 - this.t1);
+		return createVector(this.center.x + this.radius * Math.cos(angle), this.center.y + this.radius * Math.sin(angle));
+	}
+	getCrossing(_object){
+		const flag_previous = (p5.Vector.dist(this.previousCenter, _object.previousPosition) > this.radius ? 1 : -1);
+		const flag_current = (p5.Vector.dist(this.center, _object.position) > this.radius ? 1 : -1);
+		let proportion = -1;
+		if(flag_previous * flag_current < 0){
+			// 線分と円弧の交点を求めるめんどくさい計算。
+			const p = _object.position;
+			const q = _object.previousPosition;
+			const c = this.center;
+			const e = this.previousCenter;
+			const r = this.radius;
+			const xi = p5.Vector.sub(c, p);
+			const nu = p5.Vector.sub(p5.Vector.sub(p, q), p5.Vector.sub(c, e))
+			const coeffA = nu.magSq();
+			const coeffB = p5.Vector.dot(xi, nu);
+			const coeffC = xi.magSq() - r * r;
+			const coeffD = Math.sqrt(coeffB * coeffB - coeffA * coeffC);
+			const l1 = (-coeffB + coeffD) / coeffA;
+			const l2 = (-coeffB - coeffD) / coeffA;
+			const l = (l1 > 0 && l1 < 1 ? l1 : l2);
+			let direction = p5.Vector.sub(p5.Vector.lerp(p, q, l), c).heading(); // -Math.PI～Math.PIです。
+			// t～t+2PIに落とす。
+			if(direction < this.t1){ direction += 2 * Math.PI * (Math.floor((this.t1 - direction) * 0.5 / Math.PI) + 1); }
+			if(direction > this.t1 + 2 * Math.PI){ direction -= 2 * Math.PI * (Math.floor((direction - this.t1 - 2 * Math.PI) * 0.5 / Math.PI) + 1); }
+			proportion = (direction - this.t1) / (this.t2 - this.t1);
+		}
+		return proportion;
+	}
+	drawRail(){
+		arc(this.center.x, this.center.y, this.radius * 2, this.radius * 2, this.t1, this.t2);
+	}
+	drawAppearingRail(prg){
+		prg = prg * prg * (3.0 - 2.0 * prg);
+		arc(this.center.x, this.center.y, this.radius * 2, this.radius * 2, this.t1, this.t1 + (this.t2 - this.t1) * prg);
+	}
+	drawVanishingRail(prg){
+		prg = prg * prg * (3.0 - 2.0 * prg);
+		arc(this.center.x, this.center.y, this.radius * 2, this.radius * 2, this.t1 + (this.t2 - this.t1) * prg, this.t2);
+	}
 }
 
 class MovingObject{
@@ -551,66 +641,3 @@ class MovingObject{
 // 線分の場合はこれでいいんだけど例えば円弧とかだと変わってくるわけです。めんどくさ・・円なら楽なのになぜに円弧。
 
 // ただ、線分はこれが基本となるので、消さないでね。ていうかもうグローバル関数にするか・・？や、やめとこ。
-/*
-function getCrossing(_rail, _object){
-	const {x:a, y:b} = _line.edge1;
-	const {x:c, y:d} = _line.edge2;
-	const {x:e, y:f} = _line.previousEdge1;
-	const {x:g, y:h} = _line.previousEdge2;
-	const {x:u, y:v} = _object.position;
-	const {x:w, y:z} = _object.previousPosition;
-	const det_previous = ((u - a) * (d - b) - (v - b) * (c - a));
-	const det_current = ((w - e) * (h - f) - (z - f) * (g - e));
-	let proportion = -1;
-	if(det_previous * det_current < 0){
-		const det0 = (c - a) * (v - z) - (u - w) * (d - b);
-    proportion = ((v - z) * (u - a) + (w - u) * (v - b)) / det0;
-	}
-	return proportion; // 0より小さいか1より大きいときもダメにする。
-}
-*/
-
-/*
-class MovingLine{
-	constructor(direction){
-		this.id = MovingLine.id++; // 識別用。乗っかっている直線には渡らないので。それを知るための。
-		this.lineColor = color(NORMAL_RAIL_COLOR);
-		this.prepareEdges(direction);
-		this.speed = 1 + Math.random() * 1; // 直線の移動スピード
-		this.velocity = p5.Vector.fromAngle(direction, this.speed);
-		this.properFrameCount = 0;
-		this.life = Math.floor(AREA_RADIUS * 2 / this.speed) * 0.75;
-		this.alive = true;
-	}
-	isAlive(){
-		return this.alive;
-	}
-	kill(){
-		this.alive = false;
-	}
-	prepareEdges(direction){
-		const c = createVector(AREA_WIDTH * 0.5, AREA_HEIGHT * 0.5);
-		const u = p5.Vector.fromAngle(direction, -AREA_RADIUS * 0.75);
-		const v1 = p5.Vector.fromAngle(direction + Math.PI * 0.5, AREA_RADIUS * 0.3 + Math.random() * 0.2);
-		const v2 = p5.Vector.fromAngle(direction - Math.PI * 0.5, AREA_RADIUS * 0.3 + Math.random() * 0.2);
-		this.edge1 = p5.Vector.add(c, p5.Vector.add(u, v1));
-		this.edge2 = p5.Vector.add(c, p5.Vector.add(u, v2));
-		this.length = p5.Vector.dist(this.edge1, this.edge2);
-		this.previousEdge1 = this.edge1.copy();
-		this.previousEdge2 = this.edge2.copy();
-	}
-	update(){
-		this.previousEdge1.set(this.edge1);
-		this.previousEdge2.set(this.edge2);
-		this.edge1.add(this.velocity);
-		this.edge2.add(this.velocity);
-		this.properFrameCount++;
-		if(this.properFrameCount > this.life){ this.kill(); }
-	}
-	draw(){
-		stroke(this.lineColor);
-		strokeWeight(3.0);
-		line(this.edge1.x, this.edge1.y, this.edge2.x, this.edge2.y);
-	}
-}
-*/
