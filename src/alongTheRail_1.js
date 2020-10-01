@@ -107,12 +107,24 @@ class System{
 	createCircleRail(){
 		if(this.rails.length === RAIL_CAPACITY){ return; }
 		let c = createVector(AREA_WIDTH * (0.3 + Math.random() * 0.4), AREA_HEIGHT * (0.3 + Math.random() * 0.4));
-		let v = p5.Vector.fromAngle(Math.PI * 2 * Math.random(), 1);
+		let v = p5.Vector.fromAngle(Math.PI * 2 * Math.random(), 2.5);
 		let r = Math.min(AREA_WIDTH, AREA_HEIGHT) * (0.05 + 0.2 * Math.random());
-		let newCircle = new CircleRail("normal", 240, c, v, r);
+		let newCircle = new CircleRail("normal", 360, c, v, r);
 		newCircle.setMove((_circle) => {
 			_circle.previousCenter.set(_circle.center);
 			_circle.center.add(_circle.velocity);
+			const {x, y} = _circle.center;
+			const {x:vx, y:vy} = _circle.velocity;
+			const r = _circle.radius;
+			if(x - r < 0 || x + r > AREA_WIDTH){
+				const diffX = (x - r < 0 ? (r - x) / vx : (AREA_WIDTH - r - x) / vx);
+				_circle.center.add(p5.Vector.mult(_circle.velocity, diffX));
+				_circle.velocity.x *= -1;
+			}else if(y - r < 0 || y + r > AREA_HEIGHT){
+				const diffY = (y - r < 0 ? (r - y) / vy : (AREA_HEIGHT - r - y) / vy);
+				_circle.center.add(p5.Vector.mult(_circle.velocity, diffY));
+				_circle.velocity.y *= -1;
+			}
 		})
 		this.rails.push(newCircle);
 	}
