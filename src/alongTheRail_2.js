@@ -10,6 +10,9 @@
 // ようするにpreviousのもろもろ。これはすべてに共通なので、move内に書くのは具合が悪い。分離したい。
 // まあ、move書くのがめんどくさいだけ。
 
+// というわけでアクションゲームにするひとつのバリエーションを作ることにします
+// 他の派生もありそうなのでとりあえず分けます
+
 const AREA_WIDTH = 800;
 const AREA_HEIGHT = 640;
 const AREA_RADIUS = Math.sqrt(Math.pow(AREA_WIDTH, 2) + Math.pow(AREA_HEIGHT, 2)) * 0.5;
@@ -181,7 +184,8 @@ class System{
 				if(_object.isBelongingRail(_rail)){ continue; } // 所属中のレールの場合はスルー
 				const proportion = _rail.getCrossing(_object);
 				if(proportion < 0 || proportion > 1){ continue; }
-				_object.setRail(_rail, proportion);
+        // このタイミングで交叉していることが確定するのでreactionしてsetRailするなりダメージするなりやる。
+				_object.reaction(_rail, proportion);
 				break;
 			}
 		}
@@ -535,19 +539,20 @@ class MovingObject{
 		this.properFrameCount = 0; // 図形が回転するならそういうのをとかなんかそんなの
 		this.alive = true;
 		this.visible = false; // 出現するまでは直線と交わっても乗っからないとかそういうの。
-
-    // 個性に関するデータ。この辺がプレーヤーと敵で大きく分かれそう。
-		this.speed = speed;
-		this.velocity = p5.Vector.fromAngle(direction, speed);
-		this.radius = OBJECT_RADIUS;
-
 		this.position = p;
 		this.previousPosition = p.copy();
 		this.belongingData = {isBelonging:false, rail:undefined, proportion:undefined, sign:0};
 		this.waitCount = 0;
-    this.bodyColor = color(NORMAL_OBJECT_COLOR);
 		this.vanish = false;
 		this.vanishCount = OBJECT_VANISH_SPAN;
+
+    // とりあえずPlayerとEnemyで色変えるだけでいいんじゃない。
+    this.bodyColor = color(NORMAL_OBJECT_COLOR);
+
+    // 個性に関するデータ。この辺がプレーヤーと敵で大きく分かれそう。
+  	this.speed = speed;
+    this.velocity = p5.Vector.fromAngle(direction, speed);
+    this.radius = OBJECT_RADIUS;
 	}
 	isAlive(){
 		return this.alive;
@@ -567,6 +572,11 @@ class MovingObject{
 		this.alive = false;
 		this.visible = false;
 	}
+  reaction(_rail, proportion){
+    // 本来はattributeその他もろもろにより分岐処理。signとか決まったりする感じ。
+    // attributeによってはkillして終了とか。そういうのをPlayerの方に書く。Enemyの方は普通に乗っからせて・・
+    this.setRail(_rail, proportion);
+  }
 	setRail(_rail, proportion){
 		// これはreactionからの分岐でsetRailってしないとダメージレールの処理が書けない・・
 		let data = this.belongingData;
@@ -638,6 +648,9 @@ class MovingObject{
 		this.properFrameCount++;
 	}
 	draw(){
+    // drawObject, drawAppearingObject, drawVanishingObjectに分けた方がいいかも。
+    // Appearingは敵だったらパーティクルが集まってから半径大きくしてどん！みたいな。他にもellipseで横や縦に広げるとか変化を持たせたい。
+    // Vanishingも。今使ってるのはPlayer用で・・
 		stroke(this.bodyColor);
 		if(this.visible){
 			circle(this.position.x, this.position.y, this.radius * 2);
@@ -663,11 +676,3 @@ class Player extends MovingObject{
 class Enemy extends MovingObject{
 	constructor(){}
 }
-
-// 直線_lineが_objectの直前の点と現在の点を結ぶ線分と交わる。_lineはedge1とedge2を持っておりこれで判定する感じ。
-// 横切らないなら-1を返す。横切るなら交点のedge1からの割合を返す。0に近いならedge1側、1に近いならedge2側。
-// ってやるつもりだったけどなんか色々出したいみたいで（運営が）しばくぞこら（運営を）
-// 冗談は置いといて
-// 線分の場合はこれでいいんだけど例えば円弧とかだと変わってくるわけです。めんどくさ・・円なら楽なのになぜに円弧。
-
-// ただ、線分はこれが基本となるので、消さないでね。ていうかもうグローバル関数にするか・・？や、やめとこ。
