@@ -32,7 +32,7 @@ const OBJECT_VANISH_SPAN = 30; // 消滅モーション
 // aliveの他に、完全に消滅した後で消えるvanishってのを用意して、vanishがtrueになったときに
 // 配列から外すようにするといいかも。
 
-const OBJECT_UNRIDE_SPAN = 10; // レールに乗れないフレーム数を設けておく（同じレールに再び乗っちゃうのを防ぐ）
+const OBJECT_UNRIDE_SPAN = 5; // レールに乗れないフレーム数を設けておく（同じレールに再び乗っちゃうのを防ぐ）
 
 const OBJECT_RADIUS = 8; // オブジェクトの半径
 const OBJECT_STROKEWEIGHT = 2; // オブジェクトの線の太さ
@@ -40,9 +40,20 @@ const RAIL_STROKEWEIGHT = 3; // レールの太さ
 
 // なんかconstでオブジェクト指定するとプロパティの方は変えられちゃうみたいだからこれでいいよ。
 // 共通のメソッドで決める。staticで。
-const KILL_RAIL_COLOR = "white"; // 殺すレール
-const NORMAL_RAIL_COLOR = "lightgreen" // のっかるレール
-const NORMAL_OBJECT_COLOR = "orange"; // 通常時のオブジェクトの色
+
+// railType.
+const NORMAL_R = 0; // 通常レール
+const FORCE_R = 1;  // 移動させられるレール（離脱可能）
+const BIND_R = 2;   // 移動させられるレール（離脱不可）
+const ACCELL_R = 3; // 加速度がかかるレール（離脱可能）
+const KILL_R = 4;   // 通過すると即死のレール
+const NORMAL_PASS_R = 5;  // レールに乗ってない時通過できるが、レールに乗っているとき通過すると即死のレール
+const RAILING_PASS_R = 6; // レールに乗っていると通過できるが、レールに乗っていないとき通過すると即死のレール
+
+// これ使う。だからメソッドは廃止で。
+const RAIL_PALETTE = ["white", "skyblue", "lightgreen", "silver", "yellow", "red", "blue"];
+
+const NORMAL_OBJECT_COLOR = "darkgray"; // 通常時のオブジェクトの色
 
 // typeプロパティをやめて、reverseにする。reverseがtrueの場合は往復するが、そうでない場合は単純に1を足したり引いたりする。
 
@@ -70,6 +81,7 @@ class System{
 		let gr = this.bg;
 		// 何でもいいから模様
 		// この際チェックでいいよもう
+		// スクロールであれしないようにするには若干大きめに取り、貼り付け方を工夫する。
 		gr.noStroke();
 		gr.translate(gr.width * 0.5, gr.height * 0.5);
 		const GRID = 40;
@@ -95,7 +107,7 @@ class System{
 		}
 		let direction = p5.Vector.sub(p2, p1).heading() + Math.PI * 0.5;
 		let speed = 1 + Math.random();
-		let newRail = new LineRail("normal", 240 + 120 * Math.random(), p1, p2, p5.Vector.fromAngle(direction, speed));
+		let newRail = new LineRail(NORMAL_R, 240 + 120 * Math.random(), p1, p2, p5.Vector.fromAngle(direction, speed));
 		newRail.setMove((_line) => {
 			const {p1, p2} = _line;
 			const c1 = (p1.x < 0 || p1.x > AREA_WIDTH || p1.y < 0 || p1.y > AREA_HEIGHT);
@@ -111,7 +123,7 @@ class System{
 		let c = createVector(AREA_WIDTH * (0.3 + Math.random() * 0.4), AREA_HEIGHT * (0.3 + Math.random() * 0.4));
 		let v = p5.Vector.fromAngle(Math.PI * 2 * Math.random(), 2.5);
 		let r = Math.min(AREA_WIDTH, AREA_HEIGHT) * (0.05 + 0.2 * Math.random());
-		let newCircle = new CircleRail("normal", 360, c, v, r);
+		let newCircle = new CircleRail(NORMAL_R, 360, c, v, r);
 		newCircle.setMove((_circle) => {
 			_circle.center.add(_circle.velocity);
 			const {x, y} = _circle.center;
@@ -135,7 +147,7 @@ class System{
 		let c = createVector(AREA_WIDTH * (0.3 + Math.random() * 0.4), AREA_HEIGHT * (0.3 + Math.random() * 0.4));
 		let v = p5.Vector.fromAngle(Math.PI * 2 * Math.random(), 2.5);
 		let r = Math.min(AREA_WIDTH, AREA_HEIGHT) * (0.05 + 0.2 * Math.random());
-		let newArc = new ArcRail("normal", 330, c, v, r, 2 * Math.PI * Math.random(), Math.PI * (0.2 + 1.6 * Math.random()),
+		let newArc = new ArcRail(NORMAL_R, 330, c, v, r, 2 * Math.PI * Math.random(), Math.PI * (0.2 + 1.6 * Math.random()),
 		                         (1 + Math.random()) * random([1, -1]) * 0.01);
 		newArc.setMove((_arc) => {
 			_arc.t1 += _arc.angleSpeed;
@@ -266,7 +278,7 @@ class Rail{
 		this.vanishCount = 0;
 		this.attribute = attribute; // 属性に応じて色が決まる感じ。
 		this.life = life;
-		this.lineColor = Rail.getColorFromAttribute(attribute);
+		this.lineColor = RAIL_PALETTE[attribute];
   }
   isAlive(){
     return this.alive;
@@ -343,12 +355,6 @@ class Rail{
 		const prgForAppear = this.appearCount / RAIL_APPEAR_SPAN;
 		this.drawAppearingRail(prgForAppear); return;
 	}
-  static getColorFromAttribute(attr){
-    switch(attr){
-      case "kill": return KILL_RAIL_COLOR; break;
-      case "normal": return NORMAL_RAIL_COLOR; break;
-    }
-  }
 }
 
 Rail.id = 0;
@@ -575,6 +581,7 @@ class MovingObject{
   reaction(_rail, proportion){
     // 本来はattributeその他もろもろにより分岐処理。signとか決まったりする感じ。
     // attributeによってはkillして終了とか。そういうのをPlayerの方に書く。Enemyの方は普通に乗っからせて・・
+		// レールに乗らない場合とかここでreturnすれば・・そういうのとか。もしくはレールに乗っかる敵が出した弾とか。
     this.setRail(_rail, proportion);
   }
 	setRail(_rail, proportion){
@@ -651,6 +658,7 @@ class MovingObject{
     // drawObject, drawAppearingObject, drawVanishingObjectに分けた方がいいかも。
     // Appearingは敵だったらパーティクルが集まってから半径大きくしてどん！みたいな。他にもellipseで横や縦に広げるとか変化を持たせたい。
     // Vanishingも。今使ってるのはPlayer用で・・
+		// オーラはプレイヤーオンリーだから普通に書いていいよ。もういい加減始めたい。
 		stroke(this.bodyColor);
 		if(this.visible){
 			circle(this.position.x, this.position.y, this.radius * 2);
@@ -669,10 +677,15 @@ class MovingObject{
 }
 
 // 何が何でも完成させる
+// Playerはレールの特性に影響を受ける。ダメージレールに乗れなかったり。
 class Player extends MovingObject{
 	constructor(){}
 }
 
+// Enemyはストッパー以外は任意、完全に自由に動く。場合によってはホップする。空中では重力に従うけどレールに乗ったら
+// また普通に動く、画面外に出たら消える。そこはいろいろ、時間で消えたり・・とにかく、ストッパーだけ。
+// 円環ならずっとぐるぐるしてる。ダメージレールにも普通に乗れる。
+// やっぱポインターにも従って欲しいかも。動きが作りやすい。
 class Enemy extends MovingObject{
 	constructor(){}
 }
