@@ -538,6 +538,7 @@ class ArcRail extends Rail{
 // drawはグラフィックの貼り付けの方が処理も軽いしそうなるかも。
 // 敵のupdateとかdraw・・そもそもレールに乗らないかもしれないっていうね。
 // 現在「画面外に出たら消える」ってやってるところはそのうちなくす。
+// まあ、あった方がいいか（事故を防ぐために）。
 // 結局、レールと一緒でmoveだけ分離した方がすっきりするかな・・
 class MovingObject{
 	constructor(p, direction, speed){
