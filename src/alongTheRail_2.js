@@ -17,13 +17,13 @@ const AREA_WIDTH = 800;
 const AREA_HEIGHT = 640;
 const AREA_RADIUS = Math.sqrt(Math.pow(AREA_WIDTH, 2) + Math.pow(AREA_HEIGHT, 2)) * 0.5;
 
-const RAIL_CAPACITY = 15;
-const OBJECT_CAPACITY = 15;
+//const RAIL_CAPACITY = 15;
+//const OBJECT_CAPACITY = 15;
 
-const RAIL_CREATE_SPAN = 30;
+//const RAIL_CREATE_SPAN = 30;
 const RAIL_APPEAR_SPAN = 30;  // 出現モーション
 const RAIL_VANISH_SPAN = 30; // 消滅モーション
-const OBJECT_CREATE_SPAN = 30;
+//const OBJECT_CREATE_SPAN = 30;
 const OBJECT_APPEAR_SPAN = 30; // 出現モーション
 const OBJECT_VANISH_SPAN = 30; // 消滅モーション
 
@@ -34,9 +34,19 @@ const OBJECT_VANISH_SPAN = 30; // 消滅モーション
 
 const OBJECT_UNRIDE_SPAN = 5; // レールに乗れないフレーム数を設けておく（同じレールに再び乗っちゃうのを防ぐ）
 
-const OBJECT_RADIUS = 8; // オブジェクトの半径
-const OBJECT_STROKEWEIGHT = 2; // オブジェクトの線の太さ
+const PLAYER_RADIUS = 10; // オブジェクトの半径
+const PLAYER_STROKEWEIGHT = 2; // オブジェクトの線の太さ
 const RAIL_STROKEWEIGHT = 3; // レールの太さ
+
+const PLAYER_MANUALACCELERATION = 0.1; // プレイヤーを操作するときの加速度
+const GRAVITY_ACCELERATION = 0.05; // 重力加速度（鉛直下方）
+const PLAYER_MANUALSPEED_LIMIT = 6; // マニュアルサイドのスピードの上限
+const PLAYER_ACCELLSPEED_LIMIT = 8; // アクセルサイドのスピードの上限
+const PLAYER_JUMPSPEED = 6; // ジャンプしたときの鉛直上方の速度。マイナスにして運用する。
+const PLAYER_SPEEDDOWN_COEFFICIENT = 0.95; // 減速率。キー入力がない時に自然に減速する。
+const PLAYER_SPEED_LOWERLIMIT = 0.01; // これより小さくなったら0とする。
+
+const SIGN_HALFLENGTH = 4; // ポインターとかストッパーの長さの半分
 
 // なんかconstでオブジェクト指定するとプロパティの方は変えられちゃうみたいだからこれでいいよ。
 // 共通のメソッドで決める。staticで。
@@ -46,14 +56,25 @@ const NORMAL_R = 0; // 通常レール
 const FORCE_R = 1;  // 移動させられるレール（離脱可能）
 const BIND_R = 2;   // 移動させられるレール（離脱不可）
 const ACCELL_R = 3; // 加速度がかかるレール（離脱可能）
-const KILL_R = 4;   // 通過すると即死のレール
-const NORMAL_PASS_R = 5;  // レールに乗ってない時通過できるが、レールに乗っているとき通過すると即死のレール
-const RAILING_PASS_R = 6; // レールに乗っていると通過できるが、レールに乗っていないとき通過すると即死のレール
+// 以下のレールは実装時はオーラをまとわせて分かりやすくする。
+const ALL_KILL_R = 4;   // 通過すると即死のレール
+const ONRAIL_KILL_R = 5;  // レールに乗ってない時通過できるが、レールに乗っているとき通過すると即死のレール
+const OFFRAIL_KILL_R = 6; // レールに乗っていると通過できるが、レールに乗っていないとき通過すると即死のレール
+const GOAL_R = 7; // ゴールライン。通過するとステージクリア。ライムがいいなーライムにしよ。
+// 条件を満たすと現れるゴールライン、っていうのもいいね。仕事中に考えてた。
+
+// ダメージレールのフラグ
+const NONE_D = 0; // ダメージを受けない通常のレール。基本的に乗っかるもの。
+const ALL_D = 1; // 即死(magenta)
+const ONRAIL_D = 2; // レールに乗っているとき即死(red)
+const OFFRAIL_D = 3; // レールに乗っていない時即死(blue)
 
 // これ使う。だからメソッドは廃止で。
-const RAIL_PALETTE = ["white", "skyblue", "lightgreen", "silver", "yellow", "red", "blue"];
+const RAIL_PALETTE = ["white", "skyblue", "lightgreen", "silver", "magenta", "red", "blue", "lime"];
 
-const NORMAL_OBJECT_COLOR = "darkgray"; // 通常時のオブジェクトの色
+const ONRAIL_PLAYER_COLOR = "dodgerblue"; // レールに乗ってるときのオブジェクトの色（青）
+const OFFRAIL_PLAYER_COLOR = "tomato"; // レールに乗ってない時のオブジェクトの色（赤)
+// 色が異なると即死、という流れ。そこ大事。いろいろ可視化しないと混乱する・・だから黄色は・・そう考えると紫かな。magentaにしよ。
 
 // typeプロパティをやめて、reverseにする。reverseがtrueの場合は往復するが、そうでない場合は単純に1を足したり引いたりする。
 
@@ -73,6 +94,7 @@ class System{
 	constructor(){
 		this.rails = [];
 		this.objects = [];
+		this.trashRails = []; // sleepCountが正の場合はここに放り込む. updateを行い、sleepCountに達したら復活させる。
 		this.bg = createGraphics(AREA_WIDTH, AREA_HEIGHT);
 		this.prepareBackground();
 		this.properFrameCount = 0;
@@ -95,85 +117,26 @@ class System{
 		}
 	}
 	createLineRail(){
-		if(this.rails.length === RAIL_CAPACITY){ return; }
-		// ここでレールを作る。点とか指定する。速度とか。とりあえずデモでは端っこで折り返して勝手に消える感じでいいんじゃない。
-		let p1, p2;
-		if(Math.random() < 0.5){
-			p1 = createVector(AREA_WIDTH * (0.1 + 0.15 * Math.random()), AREA_HEIGHT * (0.05 + 0.9 * Math.random()));
-			p2 = createVector(AREA_WIDTH * (0.9 - 0.15 * Math.random()), AREA_HEIGHT * (0.05 + 0.9 * Math.random()));
-		}else{
-			p1 = createVector(AREA_WIDTH * (0.05 + 0.9 * Math.random()), AREA_HEIGHT * (0.1 + 0.15 * Math.random()));
-			p2 = createVector(AREA_WIDTH * (0.05 + 0.9 * Math.random()), AREA_HEIGHT * (0.9 - 0.15 * Math.random()));
-		}
-		let direction = p5.Vector.sub(p2, p1).heading() + Math.PI * 0.5;
-		let speed = 1 + Math.random();
-		let newRail = new LineRail(NORMAL_R, 240 + 120 * Math.random(), p1, p2, p5.Vector.fromAngle(direction, speed));
-		newRail.setMove((_line) => {
-			const {p1, p2} = _line;
-			const c1 = (p1.x < 0 || p1.x > AREA_WIDTH || p1.y < 0 || p1.y > AREA_HEIGHT);
-			const c2 = (p2.x < 0 || p2.x > AREA_WIDTH || p2.y < 0 || p2.y > AREA_HEIGHT);
-			if((c1 || c2) && _line.waitCount === 0){
-				_line.velocity.mult(-1);
-			}
-		});
+		//if(this.rails.length === RAIL_CAPACITY){ return; }
+
 		this.rails.push(newRail);
 	}
 	createCircleRail(){
-		if(this.rails.length === RAIL_CAPACITY){ return; }
-		let c = createVector(AREA_WIDTH * (0.3 + Math.random() * 0.4), AREA_HEIGHT * (0.3 + Math.random() * 0.4));
-		let v = p5.Vector.fromAngle(Math.PI * 2 * Math.random(), 2.5);
-		let r = Math.min(AREA_WIDTH, AREA_HEIGHT) * (0.05 + 0.2 * Math.random());
-		let newCircle = new CircleRail(NORMAL_R, 360, c, v, r);
-		newCircle.setMove((_circle) => {
-			_circle.center.add(_circle.velocity);
-			const {x, y} = _circle.center;
-			const {x:vx, y:vy} = _circle.velocity;
-			const r = _circle.radius;
-			if(x - r < 0 || x + r > AREA_WIDTH){
-				const diffX = (x - r < 0 ? (r - x) / vx : (AREA_WIDTH - r - x) / vx);
-				_circle.center.add(p5.Vector.mult(_circle.velocity, diffX));
-				_circle.velocity.x *= -1;
-			}else if(y - r < 0 || y + r > AREA_HEIGHT){
-				const diffY = (y - r < 0 ? (r - y) / vy : (AREA_HEIGHT - r - y) / vy);
-				_circle.center.add(p5.Vector.mult(_circle.velocity, diffY));
-				_circle.velocity.y *= -1;
-			}
-		})
+		//if(this.rails.length === RAIL_CAPACITY){ return; }
+
 		this.rails.push(newCircle);
 	}
 	createArcRail(){
-		// 角速度も追加～
-		if(this.rails.length === RAIL_CAPACITY){ return; }
-		let c = createVector(AREA_WIDTH * (0.3 + Math.random() * 0.4), AREA_HEIGHT * (0.3 + Math.random() * 0.4));
-		let v = p5.Vector.fromAngle(Math.PI * 2 * Math.random(), 2.5);
-		let r = Math.min(AREA_WIDTH, AREA_HEIGHT) * (0.05 + 0.2 * Math.random());
-		let newArc = new ArcRail(NORMAL_R, 330, c, v, r, 2 * Math.PI * Math.random(), Math.PI * (0.2 + 1.6 * Math.random()),
-		                         (1 + Math.random()) * random([1, -1]) * 0.01);
-		newArc.setMove((_arc) => {
-			_arc.t1 += _arc.angleSpeed;
-			_arc.t2 += _arc.angleSpeed;
-			_arc.center.add(_arc.velocity);
-			// めんどくさいので円の場合の反射処理を援用する。どうせ最終的な実装では使わないので・・
-			const {x, y} = _arc.center;
-			const {x:vx, y:vy} = _arc.velocity;
-			const r = _arc.radius;
-			if(x - r < 0 || x + r > AREA_WIDTH){
-				const diffX = (x - r < 0 ? (r - x) / vx : (AREA_WIDTH - r - x) / vx);
-				_arc.center.add(p5.Vector.mult(_arc.velocity, diffX));
-				_arc.velocity.x *= -1;
-			}else if(y - r < 0 || y + r > AREA_HEIGHT){
-				const diffY = (y - r < 0 ? (r - y) / vy : (AREA_HEIGHT - r - y) / vy);
-				_arc.center.add(p5.Vector.mult(_arc.velocity, diffY));
-				_arc.velocity.y *= -1;
-			}
-		})
+		//if(this.rails.length === RAIL_CAPACITY){ return; }
+
 		this.rails.push(newArc);
 	}
   createObject(){
-		if(this.objects.length === OBJECT_CAPACITY){ return; }
+		//if(this.objects.length === OBJECT_CAPACITY){ return; }
 		// ここでオブジェクトを作る。位置とか指定する。
-		let p = createVector(AREA_WIDTH * (0.4 + 0.2 * Math.random()), AREA_HEIGHT * (0.4 + 0.2 * Math.random()));
-		let newObject = new MovingObject(p, Math.random() * 2 * Math.PI, 2 + 3 * Math.random());
+		//let p = createVector(AREA_WIDTH * (0.4 + 0.2 * Math.random()), AREA_HEIGHT * (0.4 + 0.2 * Math.random()));
+		//let newObject = new MovingObject(p, Math.random() * 2 * Math.PI, 2 + 3 * Math.random());
+		// プレイヤーを作る。
 		this.objects.push(newObject);
 	}
 	derailmentCheck(){
@@ -188,7 +151,8 @@ class System{
 	crossingCheck(){
 		// 直線を横切る物体あったら乗っかる。
 		for(let _object of this.objects){
-			if(_object.waitCount > 0 || !_object.isVisible()){ continue; }
+			// 待ち状態のとき、visibleでないとき、レールに乗らないとき。
+			if(_object.waitCount > 0 || !_object.isVisible() || _object.avoidRail){ continue; }
 			for(let _rail of this.rails){
 				// どれかに乗っかるならそこに乗っかる。あとは調べない。breakして次の物体に移る。
 				// _objectのpositionとpreviousPositionを結ぶ線分が横切るかどうかで判定する。外積の積を取る。
@@ -202,14 +166,30 @@ class System{
 			}
 		}
 	}
+	trashCheck(){
+		for(let index = this.trashRails.length - 1; index >= 0; index--){
+			let _rail = this.trashRails[index];
+			// sleepが終わったrailを元に戻す
+			if(_rail.sleepCheck()){
+				this.trashRails.splice(index, 1);
+				_rail.reset();
+				this.rails.push(_rail);
+			}
+		}
+	}
 	remove(){
 		// remove.
 		// 線分が途中で消える場合、消えたフラグを立てたうえで、オブジェクトを外し、速度を補正し、そのあとで配列から排除する。
 		// 修正。vanishしたところで排除する。
 		// あー、確かに減っていくイテレータあったらこういうミス（++を--って書いちゃう）減るわね。便利かも。
 		for(let index = this.rails.length - 1; index >= 0; index--){
-		  if(this.rails[index].isVanish()){
+			let _rail = this.rails[index];
+		  if(_rail.isVanish()){
 				this.rails.splice(index, 1);
+				if(_rail.sleepCount > 0){
+					// sleepさせるrailを回収する
+					this.trashRails.push(_rail);
+				}
 			}
 		}
 		for(let index = this.objects.length - 1; index >= 0; index--){
@@ -234,17 +214,19 @@ class System{
 		}
 		for(let _rail of this.rails){ _rail.update(); }
 		for(let _object of this.objects){ _object.update(); }
-		this.derailmentCheck();
 		this.crossingCheck();
+		this.derailmentCheck();
+		this.trashCheck();
     this.remove();
 		this.properFrameCount++;
 	}
 	draw(){
 		image(this.bg, 0, 0);
 		noFill();
+		// レールの描画
 		strokeWeight(RAIL_STROKEWEIGHT);
 		for(let _rail of this.rails){ _rail.draw(); }
-		strokeWeight(OBJECT_STROKEWEIGHT);
+		// オブジェクトの描画
 		for(let _object of this.objects){ _object.draw(); }
 	}
 }
@@ -264,22 +246,78 @@ class System{
 // 流れ。まずalive:trueのvisible:falseで始まってそのあとalive:trueとvisible:trueになってそのあとで
 // 両方falseになってそれからvanishがtrueになって配列から排除。
 class Rail{
-  constructor(attribute, life){
+  constructor(param){
 		this.id = Rail.id++;
-    this.properFrameCount = 0;
-    this.alive = true;
-		this.visible = false;
     // pointsやめて個別にする。
     this.move = undefined;
 		this.length = 0;
-		this.appearCount = 0;
-		this.waitCount = 0;
+		this.arrowPosition = createVector();
+
+    // 以下のパラメータがsetAttributeでいじられる。ここではデフォを定義している。
+		this.stopper = [false, false]; // 端っこで離脱させるか否か
+		this.force = false; // 強制移動させるか否か
+		this.pointer = undefined; // 強制移動させる場合のポインター
+		this.bind = false; // 離脱できない場合trueになる
+		this.acceleration = undefined; // 加速度が働くならそれをベクトルで表現する感じで。
+		this.damageFlag = NONE_D; // ダメージレールの場合。敵は乗っかるのでプレイヤーだけ。黄色はアウト。
+
+		this.setAttribute(param); // ここでもろもろのパラメータ、色などを決める感じ。
+		// this.attribute = attribute; // 属性に応じて色が決まる感じ。
+		// this.lineColor = RAIL_PALETTE[attribute];
+
+		this.lifeCount = Infinity;
+		this.sleepCount = 0:
+
+		this.properFrameCount = 0;
+    this.alive = true;
+		this.visible = false;
 		this.vanish = false;
-		this.vanishCount = 0;
-		this.attribute = attribute; // 属性に応じて色が決まる感じ。
-		this.life = life;
-		this.lineColor = RAIL_PALETTE[attribute];
+		this.waitCount = 0;
   }
+	setMove(_move){
+		this.move = _move;
+	}
+	setAttribute(param){
+		if(param.stopper !== undefined){
+			this.stopper = [param.stopper[0], param.stopper[1]];
+		}
+		switch(param.railType){
+			case NORMAL_R:
+			  break;
+			case FORCE_R:
+			  this.force = true;
+				this.pointer = new RailPointer(param.pointerSpeed, param.pointerReverse);
+				break;
+			case BIND_R:
+			  this.force = true;
+				this.bind = true;
+				this.pointer = new RailPointer(param.pointerSpeed, param.pointerReverse);
+			  break;
+			case ACCELL_R:
+			  this.acceleration = param.acceleration;
+				this.accelePointingVector = p5.Vector.mult(this.acceleration, SIGN_HALFLENGTH / this.acceleration.mag());
+				break;
+			case ALL_KILL_R:
+			  this.damageFlag = ALL_D;
+				break;
+			case ONRAIL_KILL_R:
+			  this.damageFlag = ONRAIL_D;
+				break;
+			case OFFRAIL_KILL_R:
+			  this.damageFlag = OFFRAIL_D;
+				break;
+		}
+	}
+	calcTangentFromProportion(proportion){
+		// proportionに相当する位置の接線方向の単位ベクトルを取得して返す。
+		// 向きも重要。向きはproportionの低い方から高い方。これを意識する場面が存在するので・・・・
+		// ポインターの描画とかなら使わないけどね。
+		const forward = Math.min((proportion * this.length + 1) / this.length, 1);
+		const back = Math.max((proportion * this.length - 1) / this.length, 0);
+		const forwardPoint = this.calcPositionFromProportion(forward);
+		const backPoint = this.calcPositionFromProportion(back);
+		return p5.Vector.sub(forwardPoint, backPoint).normalize();
+	}
   isAlive(){
     return this.alive;
   }
@@ -290,35 +328,61 @@ class Rail{
 		return this.vanish;
 	}
 	appearCheck(){
-		if(this.appearCount < RAIL_APPEAR_SPAN){
-			this.appearCount++;
-			if(this.appearCount === RAIL_APPEAR_SPAN){
+		if(this.properFrameCount < RAIL_APPEAR_SPAN){
+			this.properFrameCount++;
+			if(this.properFrameCount === RAIL_APPEAR_SPAN){
 				this.visible = true;
+			  this.properFrameCount = 0;
 			}
 		}
-		return this.visible;
 	}
 	vanishCheck(){
-		if(this.vanishCount < RAIL_VANISH_SPAN){
-			this.vanishCount++;
-			if(this.vanishCount === RAIL_VANISH_SPAN){
+		if(this.properFrameCount < RAIL_VANISH_SPAN){
+			this.properFrameCount++;
+			if(this.properFrameCount === RAIL_VANISH_SPAN){
 				this.vanish = true;
+				this.properFrameCount = 0;
 			}
 		}
+	}
+	setLife(lifeCount, sleepCount){
+		this.lifeCount = lifeCount;
+		this.sleepCount = sleepCount;
+	}
+	setLength(len){
+		// ポインターに長さをセットするんだけど長さが決まってからじゃないといけなくてそこら辺。
+		this.length = len;
+		if(this.pointer !== undefined){
+			this.pointer.setLength(len);
+		}
+	}
+  sleepCheck(){
+		this.properFrameCount++;
+		return this.properFrameCount === this.sleepCount;
+	}
+	reset(){
+		// sleepが終わったらリセット
+		this.properFrameCount = 0;
+		this.alive = true;
+		this.visible = false;
+		this.vanish = false;
+		this.waitCount = 0;
+		if(this.pointer !== undefined){ this.pointer.reset(); } // ポインターがあればリセット
 	}
   kill(){
     this.alive = false;
 		this.visible = false;
+		this.properFrameCount = 0;
   }
-	setMove(_move){
-		this.move = _move;
-	}
-	calcPositionFromPropotion(proportion){
+	calcPositionFromProportion(proportion){
 		// 割合から点の位置を算出する処理はここで。
 	}
 	getCrossing(_object){
 		// オブジェクトのそのときの位置とか前の位置とかからいろいろ計算して、交わってないなら-1,
 		// 交わってるときはそのプロポーションを返すのね。点に対して計算。大きさは無視。0～1の値が返ってくるはずです・・！
+	}
+	calcArrowPosition(){
+		// 矢印の表示位置の計算
 	}
 	record(){
 		// previousを設定する処理
@@ -327,11 +391,35 @@ class Rail{
 		// 多分moveとか動き関連。位置の変更はここで。
 		if(!this.alive){ this.vanishCheck(); return; } // vanishするのはここで判定
 		if(this.waitCount > 0){ this.waitCount--; }
-		if(!this.appearCheck()){ return; }
+		if(!this.visible){ this.appearCheck(); return; }
 		this.record(); // previous関連
+		if(this.acceleration !== undefined){ this.calcArrowPosition(); } // 矢印の位置の計算
+		if(this.pointer !== undefined){ this.pointer.update(); } // ポインターがあればupdate.
 		if(this.move !== undefined){ this.move(this); }
 		this.properFrameCount++;
-		if(this.properFrameCount > this.life){ this.kill(); }
+		if(this.properFrameCount > this.lifeCount){ this.kill(); }
+	}
+	drawVerticalSign(proportion){
+		// ストッパーやポインターとしての縦線を描画するメソッド
+		const p = this.calcPositionFromProportion(proportion);
+		const normal = this.calcTangentFromProportion(proportion).mult(SIGN_HALFLENGTH);
+    line(p.x - normal.y, p.y + normal.x, p.x + normal.y, p.y - normal.x);
+	}
+	drawStopper(){
+		if(this.stopper[0]){ this.drawVerticalSign(0); }
+		if(this.stopper[1]){ this.drawVerticalSign(1); }
+	}
+	drawPointer(){
+		const pointerProportion = this.pointer.getProportion();
+		this.drawVerticalSign(pointerProportion);
+	}
+	drawAccellArrow(){
+		// 矢印の位置はレールごとに毎フレーム計算する、updateで。
+		const p = this.arrowPosition;
+		const v = p5.Vector.mult(this.accelePointingVector);
+		line(p.x - v.x, p.y - v.y, p.x + v.x, p.y + v.y);
+		line(p.x - v.y * 0.5, p.y + v.x * 0.5, p.x + v.x, p.y + v.y);
+		line(p.x + v.y * 0.5, p.y - v.x * 0.5, p.x + v.x, p.y + v.y);
 	}
 	drawRail(){
 		// 通常の描画処理。
@@ -345,30 +433,38 @@ class Rail{
   draw(){
 		// 図形の描画。
 		stroke(this.lineColor); // ああここ文字列でいいのね・・初めて知った。
+
 		if(this.visible){
-			this.drawRail(); return;
+			this.drawRail();
+			// ストッパーとポインターはここで描く。現れるときや消えるときとかは要らない。
+			if(this.stopper[0] | this.stopper[1]){ this.drawStopper(); }
+			if(this.pointer !== undefined){ this.drawPointer(); }
+			return;
 		}
 		if(!this.alive){
-			const prgForVanish = this.vanishCount / RAIL_VANISH_SPAN;
-			this.drawVanishingRail(prgForVanish); return;
+			const prgForVanish = this.properFrameCount / RAIL_VANISH_SPAN;
+			this.drawVanishingRail(prgForVanish);
+			return;
 		}
-		const prgForAppear = this.appearCount / RAIL_APPEAR_SPAN;
-		this.drawAppearingRail(prgForAppear); return;
+		const prgForAppear = this.properFrameCount / RAIL_APPEAR_SPAN;
+		this.drawAppearingRail(prgForAppear);
+		return;
 	}
 }
 
 Rail.id = 0;
 
+// 線分レール
 class LineRail extends Rail{
-	constructor(attribute, life, p1, p2, v){
-		super(attribute, life);
+	constructor(param, p1, p2, v){
+		super(param);
 		this.reverse = true;
 		this.p1 = p1;
 		this.p2 = p2;
 		this.previousP1 = p1.copy();
 		this.previousP2 = p2.copy();
 		this.velocity = v;
-		this.length = p5.Vector.dist(p1, p2);
+		this.setLength(p5.Vector.dist(p1, p2));
 	}
 	calcPositionFromProportion(proportion){
 		return p5.Vector.lerp(this.p1, this.p2, proportion);
@@ -395,6 +491,9 @@ class LineRail extends Rail{
 		this.p1.add(this.velocity);
 		this.p2.add(this.velocity);
 	}
+	calcArrowPosition(){
+		this.arrowPosition.set((this.p1.x + this.p2.x) * 0.5, (this.p1.y + this.p2.y) * 0.5);
+	}
 	drawRail(){
 		line(this.p1.x, this.p1.y, this.p2.x, this.p2.y);
 	}
@@ -408,15 +507,16 @@ class LineRail extends Rail{
 	}
 }
 
+// 円形のレール
 class CircleRail extends Rail{
-  constructor(attribute, life, c, v, r){
-		super(attribute, life);
+  constructor(param, c, v, r){
+		super(param);
 		this.reverse = false;
 		this.center = c;
 		this.radius = r;
 		this.previousCenter = c.copy();
 		this.velocity = v;
-		this.length = 2 * Math.PI * r;
+		this.setLength(2 * Math.PI * r);
 	}
 	calcPositionFromProportion(proportion){
 		const angle = proportion * 2 * Math.PI;
@@ -447,6 +547,9 @@ class CircleRail extends Rail{
 		}
 		return proportion;
 	}
+	calcArrowPosition(){
+		this.arrowPosition.set(this.center);
+	}
 	record(){
 		this.previousCenter.set(this.center);
 	}
@@ -472,14 +575,14 @@ class CircleRail extends Rail{
 // そうするとcosの値が出るからそれがある値以上なら弧の上って出るからそれ使った方が明らかに楽。あとは・・
 // headingで出した角度をt～t+Aに落とした方が簡単そう・・t～t+2PIに落として。そうすればproportionもすぐ出るし判定も一瞬。それで行こう。
 class ArcRail extends Rail{
-	constructor(attribute, life, c, v, r, t, diff, angleSpeed = 0){
-		super(attribute, life);
+	constructor(param, c, v, r, t, diff, angleSpeed = 0){
+		super(param);
 		this.reverse = true;
 		this.center = c;
 		this.previousCenter = c.copy();
 		this.velocity = v;
 		this.radius = r;
-		this.length = 2 * diff * r;
+		this.setLength(2 * diff * r);
 		this.t1 = t;
 		this.t2 = t + diff;
 		this.angleSpeed = angleSpeed;
@@ -489,6 +592,7 @@ class ArcRail extends Rail{
 		return createVector(this.center.x + this.radius * Math.cos(angle), this.center.y + this.radius * Math.sin(angle));
 	}
 	getCrossing(_object){
+		// 冗長なのはわかってるんだよ・・
 		const flag_previous = (p5.Vector.dist(this.previousCenter, _object.previousPosition) > this.radius ? 1 : -1);
 		const flag_current = (p5.Vector.dist(this.center, _object.position) > this.radius ? 1 : -1);
 		let proportion = -1;
@@ -516,6 +620,10 @@ class ArcRail extends Rail{
 		}
 		return proportion;
 	}
+	calcArrowPosition(){
+		const t = (this.t1 + this.t2) * 0.5;
+		this.arrowPosition.set(this.center.x + Math.cos(t) * this.radius, this.center.y + Math.sin(t) * this.radius);
+	}
 	record(){
 		this.previousCenter.set(this.center);
 	}
@@ -532,6 +640,37 @@ class ArcRail extends Rail{
 	}
 }
 
+// オブジェクトを強制移動させる場合のポインタークラス。勝手にupdateしてくれるので便利。
+class RailPointer{
+	constructor(speed, reverseFlag){
+		this.speed = speed;
+		this.reverseFlag = reverseFlag;
+		this.proportion = 0;
+	}
+	setLength(len){
+		this.railLength = len;
+	}
+	reset(){
+		this.proportion = 0;
+	}
+	getProportion(){
+		return this.proportion;
+	}
+	update(){
+		this.proportion = (this.proportion * this.railLength + this.speed) / this.railLength;
+		if(this.proportion < 0 || this.proportion > 1){
+			if(this.reverseFlag){
+				// リバースの場合ははしっこで向きを変える
+				this.proportion = constrain(this.proportion, 0, 1);
+				this.speed *= -1;
+			}else{
+				// そうでなければ反対側にワープ
+				if(this.proportion < 0){ this.proportion += 1; }else{ this.proportion -= 1; }
+			}
+		}
+	}
+}
+
 // これをどうするかっていう。
 // updateとdraw.
 // プレイヤーのupdate:レールの種類に応じた処理, draw:今まで通り、とりあえず。
@@ -541,25 +680,26 @@ class ArcRail extends Rail{
 // まあ、あった方がいいか（事故を防ぐために）。
 // 結局、レールと一緒でmoveだけ分離した方がすっきりするかな・・
 class MovingObject{
-	constructor(p, direction, speed){
-		this.appearCount = 0;
-		this.properFrameCount = 0; // 図形が回転するならそういうのをとかなんかそんなの
-		this.alive = true;
-		this.visible = false; // 出現するまでは直線と交わっても乗っからないとかそういうの。
+	constructor(p){
 		this.position = p;
 		this.previousPosition = p.copy();
 		this.belongingData = {isBelonging:false, rail:undefined, proportion:undefined, sign:0};
+
+		//this.appearCount = 0;
+		this.properFrameCount = 0; // 図形が回転するならそういうのをとかなんかそんなの
+		this.alive = true;
+		this.visible = false; // 出現するまでは直線と交わっても乗っからないとかそういうの。
 		this.waitCount = 0;
 		this.vanish = false;
-		this.vanishCount = OBJECT_VANISH_SPAN;
-
-    // とりあえずPlayerとEnemyで色変えるだけでいいんじゃない。
-    this.bodyColor = color(NORMAL_OBJECT_COLOR);
+		//this.vanishCount = OBJECT_VANISH_SPAN;
 
     // 個性に関するデータ。この辺がプレーヤーと敵で大きく分かれそう。
-  	this.speed = speed;
-    this.velocity = p5.Vector.fromAngle(direction, speed);
-    this.radius = OBJECT_RADIUS;
+  	//this.speed = speed;
+    //this.velocity = p5.Vector.fromAngle(direction, speed);
+		this.manualVelocity = createVector();
+		this.accellVelocity = createVector();
+
+		this.avoidRail = false; // trueだとレールを避ける. 継承の方で何とかする。
 	}
 	isAlive(){
 		return this.alive;
@@ -578,15 +718,14 @@ class MovingObject{
 	kill(){
 		this.alive = false;
 		this.visible = false;
+		this.properFrameCount = 0;
 	}
   reaction(_rail, proportion){
-    // 本来はattributeその他もろもろにより分岐処理。signとか決まったりする感じ。
-    // attributeによってはkillして終了とか。そういうのをPlayerの方に書く。Enemyの方は普通に乗っからせて・・
-		// レールに乗らない場合とかここでreturnすれば・・そういうのとか。もしくはレールに乗っかる敵が出した弾とか。
-    this.setRail(_rail, proportion);
+		// レールに接する場合の処理は個別にしましょうね。
   }
 	setRail(_rail, proportion){
 		// これはreactionからの分岐でsetRailってしないとダメージレールの処理が書けない・・
+		this.accellVelocity.set(0, 0); // アクセルサイドの速度をリセット
 		let data = this.belongingData;
 		data.isBelonging = true;
 		data.rail = _rail;
@@ -596,91 +735,248 @@ class MovingObject{
 	}
 	derailment(){
 		// レールから離脱する。
-		// 先に速度を何とかする。
-		const direction = p5.Vector.sub(this.position, this.previousPosition).heading();
-		this.velocity.set(p5.Vector.fromAngle(direction, this.speed));
+		// 速度はそのまま。
+		//const direction = p5.Vector.sub(this.position, this.previousPosition).heading();
+		//this.velocity.set(p5.Vector.fromAngle(direction, this.speed));
 		this.belongingData.isBelonging = false;
 		this.belongingData.rail = undefined;
 		this.belongingData.proportion = undefined;
 		this.belongingData.sign = 0;
-		this.waitCount = OBJECT_UNRIDE_SPAN;
-	}
-	simpleMove(){
-		// reverseプロパティに応じて右往左往するもっとも基本的な移動メソッド
-		const _rail = this.belongingData.rail;
-		let p = this.belongingData.proportion;
-		p += this.belongingData.sign * this.speed / _rail.length;
-		if(p < 0 || p > 1){
-			if(_rail.reverse){
-			  this.belongingData.sign *= -1; // reverse.
-			  p = constrain(p, 0, 1);
-			}else{
-				if(p < 0){ p += 1; }
-				if(p > 1){ p -= 1; }
-			}
-		}
-		this.belongingData.proportion = p;
-		this.position.set(_rail.calcPositionFromProportion(p));
+		// 離脱した後のスパンは必要ないでしょ。
 	}
 	appearCheck(){
-		if(this.appearCount < OBJECT_APPEAR_SPAN){
-			this.appearCount++;
-			if(this.appearCount === OBJECT_APPEAR_SPAN){
+		if(this.properFrameCount < OBJECT_APPEAR_SPAN){
+			this.properFrameCount++;
+			if(this.properFrameCount === OBJECT_APPEAR_SPAN){
 				this.visible = true;
+				this.properFrameCount = 0;
 			}
 		}
-		return this.visible;
 	}
 	vanishCheck(){
-		this.vanishCount--;
-		if(this.vanishCount === 0){
-			this.vanish = true;
+		if(this.properFrameCount < OBJECT_VANISH_SPAN){
+			this.properFrameCount++;
+			if(this.properFrameCount === OBJECT_VANISH_SPAN){
+				this.vanish = true;
+				this.properFrameCount = 0;
+			}
 		}
+	}
+	onRailMove(){
+		// レールに乗ってるときの速度補正処理
+	}
+	offRailMove(){
+		// レールに乗ってない時の速度補正処理
+	}
+	updatePosition(){
+		// 速度に従って最終的に位置を決める処理
+	}
+	boundaryCheck(){
+		if(this.position.x < 0 || this.position.x > AREA_WIDTH){ this.kill(); }
+		if(this.position.y < 0 || this.position.y > AREA_HEIGHT){ this.kill(); }
 	}
 	update(){
 		if(!this.alive){ this.vanishCheck(); return; }
 		if(this.waitCount > 0){ this.waitCount--; }
 
 		// appearするかどうかチェック。その間properFrameCountは変化なし。
-		if(!this.appearCheck()){ return; }
+		if(!this.visible){ this.appearCheck(); return; }
 
 		this.previousPosition.set(this.position.x, this.position.y);
 		if(this.belongingData.isBelonging){
 			// 所属する直線がある場合の処理。具体的には直線がスピードを指定するのでそれに従って直線に沿って動く。
-			this.simpleMove();
+			this.onRailMove();
 		}else{
 			// ない場合は普通に速度を足す。
-			this.position.add(this.velocity);
+			this.offRailMove();
 		}
-		if(this.position.x < 0 || this.position.x > AREA_WIDTH || this.position.y < 0 || this.position.y > AREA_HEIGHT){ this.kill(); }
+		this.updatePosition(); // 速度の補正や位置の決定を行う。
+		this.boundaryCheck();
 		this.properFrameCount++;
+  }
+	draw(){}
+}
+
+// 何が何でも完成させる
+// Playerはレールの特性に影響を受ける。ダメージレールに乗れなかったり。
+// bindのレールから離脱ボタンで離脱できないようにいじるのは適宜メソッドを用意するので・・待っててね。
+class Player extends MovingObject{
+	constructor(p){
+		super(p);
+		// この2つはPlayer用でそのうち移す
+	  this.radius = PLAYER_RADIUS;
+		this.jumpFlag = false; // ジャンプ
+		this.derailFlag = false; // 自然な離脱
+	}
+	reaction(_rail, proportion){
+		// ダメージかどうかで分ける。
+		// 乗った後は知らない。
+		switch(_rail.damageFlag){
+			case NONE:
+			  this.setRail(_rail, proportion); break;
+			case ALL_D:
+			  this.kill(); break;
+			case ONRAIL_D:
+			  if(this.belongingData.isBelonging){ this.kill(); } break;
+			case OFFRAIL_D:
+			  if(!this.belongingData.isBelonging){ this.kill(); } break;
+		}
+	}
+	setDerailFlag(){
+		// キー入力で使う（シフト）
+		const data = this.belongingData;
+		if(!data.isBelonging){ return; }
+		if(data.rail.bind){ return; }
+		this.derailFlag = true;
+	}
+	setJumpFlag(){
+		// キー入力で使う（スペース）
+		const data = this.belongingData;
+		if(!data.isBelonging){ return; }
+		if(data.rail.bind){ return; }
+		this.jumpFlag = true;
+	}
+	getKeyInput(){
+		const x = (keyIsDown(RIGHT_ARROW) ? 1 : (keyIsDown(LEFT_ARROW) ? -1 : 0));
+		const y = (keyIsDown(DOWN_ARROW) ? 1 : (keyIsDown(UP_ARROW) ? -1 : 0));
+		return {x, y};
+	}
+	controlManualVelocity(inputX, inputY){
+		if(inputX){
+			this.manualVelocity.x += inputX * PLAYER_MANUALACCELERATION;
+		}else{
+			this.manualVelocity.mult(PLAYER_SPEEDDOWN_COEFFICIENT);
+		}
+		if(inputY){
+			this.manualVelocity.y += inputY * PLAYER_MANUALACCELERATION;
+		}else{
+			this.manualVelocity.mult(PLAYER_SPEEDDOWN_COEFFICIENT);
+		}
+		if(this.manualVelocity.mag() > 0.0 && this.manualVelocity.mag() < PLAYER_SPEED_LOWERLIMIT){
+			this.manualVelocity.set(0, 0);
+		}
+	}
+	proportionAdjustment(){
+		let data = this.belongingData;
+		const _rail = data.rail;
+		if(_rail.reverse){
+			// 弧とか線分
+			if(data.proportion < 0){
+				if(stopper[0]){
+					data.proportion = 0;
+					this.manualVelocity.set(0, 0); // はじっこで止まる場合
+					this.accellVelocity.set(0, 0);
+				}else{
+					this.derailment();
+				}
+			}
+			if(data.proportion > 1){
+				if(stopper[1]){
+					data.proportion = 1;
+					this.manualVelocity.set(0, 0); // はじっこで止まる場合
+					this.accellVelocity.set(0, 0); // どっちも0にする
+				}else{
+					this.derailment();
+				}
+			}
+		}else{
+			// 円とか
+			if(data.proportion < 0){ data.proportion += 1; }
+			if(data.proportion > 1){ data.proportion -= 1; }
+		}
+	}
+	velocityAdjustment(){
+		const mMag = this.manualVelocity.mag();
+		const aMag = this.accellVelocity.mag();
+		if(mMag > PLAYER_MANUALSPEED_LIMIT){ this.manualVelocity.mult(PLAYER_MANUALSPEED_LIMIT / mMag); }
+		if(aMag > PLAYER_ACCELLSPEED_LIMIT){ this.accellVelocity.mult(PLAYER_ACCELLSPEED_LIMIT / aMag); }
+	}
+	jump(){
+		// ジャンプしてレールを離脱する（onRail→offRailのパターンしかない、常にレールに乗っているので）。
+		// railがbindの場合は不可能。bindのレールからは端っこからしか離脱できない。
+		this.derailment();
+		this.accellVelocity.set(0, -PLAYER_JUMPSPEED);
+	}
+	onRailMove(){
+    // forceとかpointerとかgravityとかstopperに従って更新。
+		// 速度はいじるけど位置更新はプロポーション使って別立てでやるかな・・
+		// ちなみにこの処理の中ではじっこから飛び出してoffRailになる場合があって、その場合は速度をいじらないので、
+		// その速度のままoffRailであるものとして位置を更新する。そうするしかないでしょう。
+
+    // ジャンプや離脱の命令が出ている場合はそのように処理して終わり
+		if(this.jumpFlag){ this.jump(); this.jumpFlag = false; return; }
+		if(this.derailFlag){ this.derailment(); this.derailFlag = false; return; }
+
+    let data = this.belongingData;
+		const _rail = data.rail;
+		const tangent = _rail.calcTangent(data.proportion); // 接線単位ベクトル。何かと使うので。
+		if(_rail.force){
+			const pointer = _rail.pointer;
+			const stopper = _rail.stopper;
+			// 強制移動の場合はmanualSpeedをtangentで更新しつつ・・って感じ。tangentはproportionの低い方から高い方。
+			this.manualVelocity.set(p5.Vector.mult(tangent, pointer.speed));
+			data.proportion = (data.proportion * _rail.length + pointer.speed) / _rail.length;
+		}else{
+			// キー入力による変更
+			const arrowKeyInput = this.getArrowKeyInput();
+			this.controlManualVelocity(arrowKeyInput.x, arrowKeyInput.y);
+			let manualSpeed = 0;
+			let accellSpeed = 0;
+			manualSpeed = p5.Vector.dot(this.manualVelocity, tangent);
+			this.manualVelocity.set(p5.Vector.mult(tangent, manualSpeed)); // 射影を取る
+			// 加速度の影響がある場合の処理
+			if(_rail.acceleration !== undefined){
+				this.accellVelocity.add(_rail.acceleration);
+				accellSpeed = p5.Vector.dot(this.accellVelocity, tangent);
+				this.accellVelocity.set(p5.Vector.mult(tangent, accellSpeed)); // 射影を取る
+			}
+			// 符号付の速さでないと失敗する。tangent方向が基準。tangentはproportionの増加方向に流れてるので、
+			// 内積を取ればproportionをどっちに増やせばいいか分かる仕組み。
+			data.proportion = (data.proportion * _rail.length + manualSpeed + accellSpeed) / _rail.length;
+		}
+		// proportionの補正はこの辺で行なうのがいいのでは。
+		this.proportionAdjustment();
+		this.velocityAdjustment();
+	}
+	offRailMove(){
+		// 上下の入力は無視される。自由に動くが鉛直下方の重力に支配される。
+		const arrowKeyInput = this.getArrowKeyInput(); // {x:0か1か-1, y:0か1か-1} xが水平でyが垂直。
+		// y成分は強制的に無視する。つまり減速して0になる。
+		this.controlManualVelocity(arrowKeyInput.x, 0);
+		this.accellVelocity.y += GRAVITY_ACCELERATION;
+		this.velocityAdjustment();
+	}
+	updatePosition(){
+		// 位置・・レールに乗ってるならプロポーション使ってサクッと
+		// 乗ってないなら速度に従ってね
 	}
 	draw(){
     // drawObject, drawAppearingObject, drawVanishingObjectに分けた方がいいかも。
     // Appearingは敵だったらパーティクルが集まってから半径大きくしてどん！みたいな。他にもellipseで横や縦に広げるとか変化を持たせたい。
     // Vanishingも。今使ってるのはPlayer用で・・
-		// オーラはプレイヤーオンリーだから普通に書いていいよ。もういい加減始めたい。
-		stroke(this.bodyColor);
+		// 普通にプレイヤーの色にした。最終的にはグラフィック。
+		if(this.belongingdata.isBelonging){
+			stroke(ONRAIL_PLAYER_COLOR);
+		}else{
+			stroke(OFFRAIL_PLAYER_COLOR);
+		}
+		strokeWeight(PLAYER_STROKEWEIGHT);
 		if(this.visible){
 			circle(this.position.x, this.position.y, this.radius * 2);
 			return;
 		}
 		if(!this.alive){
-			let prgForVanish = this.vanishCount / OBJECT_VANISH_SPAN;
+			let prgForVanish = this.properFrameCount / OBJECT_VANISH_SPAN;
+			// ここは工夫したいわね（パーティクル出すとか）
+			// ラスト1フレームで出すとかなら別の所に書かなくて済むし・・ああいやSystemの方に書くべきよね。
 			prgForVanish = prgForVanish * prgForVanish;
-			circle(this.position.x, this.position.y, this.radius * 2 * prgForVanish);
+			circle(this.position.x, this.position.y, this.radius * 2 * (1.0 - prgForVanish));
 			return;
 		}
-		let prgForAppear = this.appearCount / OBJECT_APPEAR_SPAN;
+		let prgForAppear = this.properFrameCount / OBJECT_APPEAR_SPAN;
 		// ここprgイージングさせてもいいかも
 		circle(this.position.x, this.position.y, this.radius * 2 * prgForAppear);
 	}
-}
-
-// 何が何でも完成させる
-// Playerはレールの特性に影響を受ける。ダメージレールに乗れなかったり。
-class Player extends MovingObject{
-	constructor(){}
 }
 
 // Enemyはストッパー以外は任意、完全に自由に動く。場合によってはホップする。空中では重力に従うけどレールに乗ったら
@@ -690,3 +986,71 @@ class Player extends MovingObject{
 class Enemy extends MovingObject{
 	constructor(){}
 }
+
+/*
+レール作りのメソッドはこの辺に避難させとく
+// ここでレールを作る。点とか指定する。速度とか。とりあえずデモでは端っこで折り返して勝手に消える感じでいいんじゃない。
+let p1, p2;
+if(Math.random() < 0.5){
+	p1 = createVector(AREA_WIDTH * (0.1 + 0.15 * Math.random()), AREA_HEIGHT * (0.05 + 0.9 * Math.random()));
+	p2 = createVector(AREA_WIDTH * (0.9 - 0.15 * Math.random()), AREA_HEIGHT * (0.05 + 0.9 * Math.random()));
+}else{
+	p1 = createVector(AREA_WIDTH * (0.05 + 0.9 * Math.random()), AREA_HEIGHT * (0.1 + 0.15 * Math.random()));
+	p2 = createVector(AREA_WIDTH * (0.05 + 0.9 * Math.random()), AREA_HEIGHT * (0.9 - 0.15 * Math.random()));
+}
+let direction = p5.Vector.sub(p2, p1).heading() + Math.PI * 0.5;
+let speed = 1 + Math.random();
+let newRail = new LineRail(NORMAL_R, 240 + 120 * Math.random(), p1, p2, p5.Vector.fromAngle(direction, speed));
+newRail.setMove((_line) => {
+	const {p1, p2} = _line;
+	const c1 = (p1.x < 0 || p1.x > AREA_WIDTH || p1.y < 0 || p1.y > AREA_HEIGHT);
+	const c2 = (p2.x < 0 || p2.x > AREA_WIDTH || p2.y < 0 || p2.y > AREA_HEIGHT);
+	if((c1 || c2) && _line.waitCount === 0){
+		_line.velocity.mult(-1);
+	}
+});
+
+let c = createVector(AREA_WIDTH * (0.3 + Math.random() * 0.4), AREA_HEIGHT * (0.3 + Math.random() * 0.4));
+let v = p5.Vector.fromAngle(Math.PI * 2 * Math.random(), 2.5);
+let r = Math.min(AREA_WIDTH, AREA_HEIGHT) * (0.05 + 0.2 * Math.random());
+let newCircle = new CircleRail(NORMAL_R, 360, c, v, r);
+newCircle.setMove((_circle) => {
+	_circle.center.add(_circle.velocity);
+	const {x, y} = _circle.center;
+	const {x:vx, y:vy} = _circle.velocity;
+	const r = _circle.radius;
+	if(x - r < 0 || x + r > AREA_WIDTH){
+		const diffX = (x - r < 0 ? (r - x) / vx : (AREA_WIDTH - r - x) / vx);
+		_circle.center.add(p5.Vector.mult(_circle.velocity, diffX));
+		_circle.velocity.x *= -1;
+	}else if(y - r < 0 || y + r > AREA_HEIGHT){
+		const diffY = (y - r < 0 ? (r - y) / vy : (AREA_HEIGHT - r - y) / vy);
+		_circle.center.add(p5.Vector.mult(_circle.velocity, diffY));
+		_circle.velocity.y *= -1;
+	}
+})
+
+let c = createVector(AREA_WIDTH * (0.3 + Math.random() * 0.4), AREA_HEIGHT * (0.3 + Math.random() * 0.4));
+let v = p5.Vector.fromAngle(Math.PI * 2 * Math.random(), 2.5);
+let r = Math.min(AREA_WIDTH, AREA_HEIGHT) * (0.05 + 0.2 * Math.random());
+let newArc = new ArcRail(NORMAL_R, 330, c, v, r, 2 * Math.PI * Math.random(), Math.PI * (0.2 + 1.6 * Math.random()),
+												 (1 + Math.random()) * random([1, -1]) * 0.01);
+newArc.setMove((_arc) => {
+	_arc.t1 += _arc.angleSpeed;
+	_arc.t2 += _arc.angleSpeed;
+	_arc.center.add(_arc.velocity);
+	// めんどくさいので円の場合の反射処理を援用する。どうせ最終的な実装では使わないので・・
+	const {x, y} = _arc.center;
+	const {x:vx, y:vy} = _arc.velocity;
+	const r = _arc.radius;
+	if(x - r < 0 || x + r > AREA_WIDTH){
+		const diffX = (x - r < 0 ? (r - x) / vx : (AREA_WIDTH - r - x) / vx);
+		_arc.center.add(p5.Vector.mult(_arc.velocity, diffX));
+		_arc.velocity.x *= -1;
+	}else if(y - r < 0 || y + r > AREA_HEIGHT){
+		const diffY = (y - r < 0 ? (r - y) / vy : (AREA_HEIGHT - r - y) / vy);
+		_arc.center.add(p5.Vector.mult(_arc.velocity, diffY));
+		_arc.velocity.y *= -1;
+	}
+})
+*/
