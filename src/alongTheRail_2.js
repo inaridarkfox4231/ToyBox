@@ -13,6 +13,10 @@
 // というわけでアクションゲームにするひとつのバリエーションを作ることにします
 // 他の派生もありそうなのでとりあえず分けます
 
+// まだテスト不十分だけどまあ手ごたえとしてはこんなもんでしょ・・
+// いろいろ、lifeとか、動きについても手を付けてないし、んーーーーんーーーー
+// とりあえず一区切り。
+
 const AREA_WIDTH = 800;
 const AREA_HEIGHT = 640;
 const AREA_RADIUS = Math.sqrt(Math.pow(AREA_WIDTH, 2) + Math.pow(AREA_HEIGHT, 2)) * 0.5;
@@ -38,15 +42,15 @@ const PLAYER_RADIUS = 10; // オブジェクトの半径
 const PLAYER_STROKEWEIGHT = 2; // オブジェクトの線の太さ
 const RAIL_STROKEWEIGHT = 3; // レールの太さ
 
-const PLAYER_MANUALACCELERATION = 0.1; // プレイヤーを操作するときの加速度
-const GRAVITY_ACCELERATION = 0.05; // 重力加速度（鉛直下方）
+const PLAYER_MANUALACCELERATION = 0.15; // プレイヤーを操作するときの加速度
+const GRAVITY_ACCELERATION = 0.2; // 重力加速度（鉛直下方）
 const PLAYER_MANUALSPEED_LIMIT = 6; // マニュアルサイドのスピードの上限
 const PLAYER_ACCELLSPEED_LIMIT = 8; // アクセルサイドのスピードの上限
 const PLAYER_JUMPSPEED = 6; // ジャンプしたときの鉛直上方の速度。マイナスにして運用する。
-const PLAYER_SPEEDDOWN_COEFFICIENT = 0.95; // 減速率。キー入力がない時に自然に減速する。
+const PLAYER_SPEEDDOWN_COEFFICIENT = 0.98; // 減速率。キー入力がない時に自然に減速する。
 const PLAYER_SPEED_LOWERLIMIT = 0.01; // これより小さくなったら0とする。
 
-const SIGN_HALFLENGTH = 4; // ポインターとかストッパーの長さの半分
+const SIGN_HALFLENGTH = 6; // ポインターとかストッパーの長さの半分
 
 // なんかconstでオブジェクト指定するとプロパティの方は変えられちゃうみたいだからこれでいいよ。
 // 共通のメソッドで決める。staticで。
@@ -90,13 +94,36 @@ function draw(){
 	mySystem.draw();
 }
 
+// railの作り方。
+// ------paramについて。------
+// まずstopperは長さ2の配列でtrue/falseが入ってる。BIND_Rのときはなるべく解放してください。trueにすると封じることができる。
+// railTypeはNORMAL_R, FORCE_R, BIND_R, ACCELL_R, ALL_KILL_R, ONRAIL_KILL_R, OFFRAIL_KILL_R, GOAL_Rの8種類（今のところ）。
+// NORMAL_Rの場合特別な付加構造は無し。FORCE_RとBIND_Rを指定する場合はpointerSpeedとpointerReverseを設定してね。
+// ACCELL_Rの場合はacceleration(ベクトル)を設定する。ダメージレールはrailTypeだけでいい。おわり。
+// ------それ以外の部分。------
+// lineRailの作り方
+// new LineRail(param, x1, y1, x2, y2, vx = 0, vy = 0);
+// vx, vyは設定されてるとその方向に動くけど往復とかいろいろ、センサー、まあそこら辺はsetMoveでいくらでも。
+// 生きてる間の動きに関してはproperFrameCountで自由に制御してねって感じ。
+// new CircleRail(param, cx, cy, r, vx = 0, vy = 0);
+// まあ、わかるでしょ。setMoveで動きを制御、といっても従来のような動かし方は多分もうしないけど
+// new Arc(param, cx, cy, r, t, diff, vx = 0, vy = 0, angleSpeed = 0);
+// これもなんとなくわかるはず。あとはもうsetMoveで何を指示するかかしらね・・・
+// とりあえずsetMoveはいいです。
+// あと、setLifeでlifeCountとsleepCountを設定する場合があります。lifeCountのデフォはInfinityですが有限にすると
+// 一定時間で消滅します。sleepCountを設定すると元の場所に全く同じパラメータで復活します。
+// backupのデータをいじれば違うデータを元に復活させることもできるけど・・そうなるともうオブジェクトプールだわね。
+
 class System{
 	constructor(){
 		this.rails = [];
 		this.objects = [];
 		this.trashRails = []; // sleepCountが正の場合はここに放り込む. updateを行い、sleepCountに達したら復活させる。
+		this.trashObjects = []; // objectにもsleepCountを用意した方がいいかもとかそういうの
 		this.bg = createGraphics(AREA_WIDTH, AREA_HEIGHT);
 		this.prepareBackground();
+		this.player = this.createPlayer();
+		this.createLineRail();
 		this.properFrameCount = 0;
 	}
 	prepareBackground(){
@@ -118,18 +145,29 @@ class System{
 	}
 	createLineRail(){
 		//if(this.rails.length === RAIL_CAPACITY){ return; }
-
-		this.rails.push(newRail);
+    let _rail0 = new LineRail({railType:NORMAL_R, stopper:[true, true]}, 50, 200, 250, 300);
+		let _rail1 = new LineRail({railType:NORMAL_R}, 200, 50, 50, 300);
+		let _rail2 = new LineRail({railType:ALL_KILL_R}, 5, 5, 400, 5);
+		let _rail3 = new LineRail({railType:ALL_KILL_R}, 5, 5, 5, 480);
+		let _rail4 = new LineRail({railType:FORCE_R, pointerSpeed:4, pointerReverse:true, stopper:[false, true]}, 240, 400, 740, 400);
+		let _rail5 = new LineRail({railType:BIND_R, pointerSpeed:8, pointerReverse:false, stopper:[true, false]}, 300, 500, 300, 80);
+		//let _rail6 = new LineRail({railType:ONRAIL_KILL_R}, 400, 40, 400, 600);
+		//let _rail7 = new LineRail({railType:OFFRAIL_KILL_R}, 600, 40, 600, 600);
+		let _rail8 = new CircleRail({railType:FORCE_R, pointerSpeed:4, pointerReverse:false}, 100, 500, 80);
+		let _rail9 = new ArcRail({railType:NORMAL_R, stopper:[true, true]}, 500, 400, 200, -PI * 0.5, PI);
+		let _rail10 = new LineRail({railType:ACCELL_R, acceleration:createVector(0, 0.3)}, 600, 20, 400, 220);
+		this.rails.push(...[_rail0, _rail1, _rail2, _rail3, _rail4, _rail5, _rail8, _rail9, _rail10]);
+		//this.rails.push(newRail);
 	}
 	createCircleRail(){
 		//if(this.rails.length === RAIL_CAPACITY){ return; }
 
-		this.rails.push(newCircle);
+		//this.rails.push(newCircle);
 	}
 	createArcRail(){
 		//if(this.rails.length === RAIL_CAPACITY){ return; }
 
-		this.rails.push(newArc);
+		//this.rails.push(newArc);
 	}
   createObject(){
 		//if(this.objects.length === OBJECT_CAPACITY){ return; }
@@ -137,7 +175,13 @@ class System{
 		//let p = createVector(AREA_WIDTH * (0.4 + 0.2 * Math.random()), AREA_HEIGHT * (0.4 + 0.2 * Math.random()));
 		//let newObject = new MovingObject(p, Math.random() * 2 * Math.PI, 2 + 3 * Math.random());
 		// プレイヤーを作る。
-		this.objects.push(newObject);
+		//this.objects.push(newObject);
+	}
+	createPlayer(){
+		let _player = new Player(100, 100);
+		_player.setLife(Infinity, 30);
+		this.objects.push(_player);
+		return _player;
 	}
 	derailmentCheck(){
 		// _objectについて所属している直線が消えた場合にそこをチェックする感じ。
@@ -176,6 +220,15 @@ class System{
 				this.rails.push(_rail);
 			}
 		}
+		for(let index = this.trashObjects.length - 1; index >= 0; index--){
+			let _object = this.trashObjects[index];
+			// sleepが終わったobjectを元に戻す
+			if(_object.sleepCheck()){
+				this.trashObjects.splice(index, 1);
+				_object.reset();
+				this.objects.push(_object);
+			}
+		}
 	}
 	remove(){
 		// remove.
@@ -193,25 +246,18 @@ class System{
 			}
 		}
 		for(let index = this.objects.length - 1; index >= 0; index--){
-			if(this.objects[index].isVanish()){
+			let _object = this.objects[index];
+			if(_object.isVanish()){
 				this.objects.splice(index, 1);
+				if(_object.sleepCount > 0){
+					// sleepさせるobjectを回収する（playerとか）
+					this.trashObjects.push(_object);
+				}
 			}
 		}
 	}
 	update(){
-		if(this.properFrameCount % RAIL_CREATE_SPAN === 0){
-			const rdm = Math.random();
-			if(rdm < 0.4){
-				this.createLineRail();
-			}else if(rdm < 0.7){
-			  this.createCircleRail();
-			}else{
-				this.createArcRail();
-			}
-		}
-		if(this.properFrameCount % OBJECT_CREATE_SPAN === 0){
-			this.createObject();
-		}
+    // クリエイト部分は一旦なくす。
 		for(let _rail of this.rails){ _rail.update(); }
 		for(let _object of this.objects){ _object.update(); }
 		this.crossingCheck();
@@ -266,7 +312,7 @@ class Rail{
 		// this.lineColor = RAIL_PALETTE[attribute];
 
 		this.lifeCount = Infinity;
-		this.sleepCount = 0:
+		this.sleepCount = 0;
 
 		this.properFrameCount = 0;
     this.alive = true;
@@ -295,7 +341,7 @@ class Rail{
 			  break;
 			case ACCELL_R:
 			  this.acceleration = param.acceleration;
-				this.accelePointingVector = p5.Vector.mult(this.acceleration, SIGN_HALFLENGTH / this.acceleration.mag());
+				this.accelePointingVector = p5.Vector.mult(this.acceleration, SIGN_HALFLENGTH * 2 / this.acceleration.mag());
 				break;
 			case ALL_KILL_R:
 			  this.damageFlag = ALL_D;
@@ -307,6 +353,7 @@ class Rail{
 			  this.damageFlag = OFFRAIL_D;
 				break;
 		}
+		this.lineColor = color(RAIL_PALETTE[param.railType]);
 	}
 	calcTangentFromProportion(proportion){
 		// proportionに相当する位置の接線方向の単位ベクトルを取得して返す。
@@ -345,7 +392,7 @@ class Rail{
 			}
 		}
 	}
-	setLife(lifeCount, sleepCount){
+	setLife(lifeCount, sleepCount = 0){
 		this.lifeCount = lifeCount;
 		this.sleepCount = sleepCount;
 	}
@@ -368,6 +415,10 @@ class Rail{
 		this.vanish = false;
 		this.waitCount = 0;
 		if(this.pointer !== undefined){ this.pointer.reset(); } // ポインターがあればリセット
+		this.reconstruction(); // コンストラクタでやったようなことを実行するパート
+	}
+	reconstruction(){
+		// コンストラクタの呼び直し
 	}
   kill(){
     this.alive = false;
@@ -395,6 +446,7 @@ class Rail{
 		this.record(); // previous関連
 		if(this.acceleration !== undefined){ this.calcArrowPosition(); } // 矢印の位置の計算
 		if(this.pointer !== undefined){ this.pointer.update(); } // ポインターがあればupdate.
+		this.defaultMove(); // 基本ムーブ（速度に応じて動くとか）
 		if(this.move !== undefined){ this.move(this); }
 		this.properFrameCount++;
 		if(this.properFrameCount > this.lifeCount){ this.kill(); }
@@ -416,7 +468,7 @@ class Rail{
 	drawAccellArrow(){
 		// 矢印の位置はレールごとに毎フレーム計算する、updateで。
 		const p = this.arrowPosition;
-		const v = p5.Vector.mult(this.accelePointingVector);
+		const v = this.accelePointingVector;
 		line(p.x - v.x, p.y - v.y, p.x + v.x, p.y + v.y);
 		line(p.x - v.y * 0.5, p.y + v.x * 0.5, p.x + v.x, p.y + v.y);
 		line(p.x + v.y * 0.5, p.y - v.x * 0.5, p.x + v.x, p.y + v.y);
@@ -439,6 +491,7 @@ class Rail{
 			// ストッパーとポインターはここで描く。現れるときや消えるときとかは要らない。
 			if(this.stopper[0] | this.stopper[1]){ this.drawStopper(); }
 			if(this.pointer !== undefined){ this.drawPointer(); }
+			if(this.acceleration !== undefined){ this.drawAccellArrow(); }
 			return;
 		}
 		if(!this.alive){
@@ -455,16 +508,26 @@ class Rail{
 Rail.id = 0;
 
 // 線分レール
+// 位置ベースで動かすことも考えて速度はとりあえず無しで。
+// プロパティとしては用意しておくけど。ああ、じゃあundefinedにして使うかどうかオプションになるようにするか。
 class LineRail extends Rail{
-	constructor(param, p1, p2, v){
+	constructor(param, x1, y1, x2, y2, vx = 0, vy = 0){
 		super(param);
+		this.backup = {x1:x1, y1:y1, x2:x2, y2:y2, vx:vx, vy:vy};
 		this.reverse = true;
-		this.p1 = p1;
-		this.p2 = p2;
-		this.previousP1 = p1.copy();
-		this.previousP2 = p2.copy();
-		this.velocity = v;
-		this.setLength(p5.Vector.dist(p1, p2));
+		this.p1 = createVector(x1, y1);
+		this.p2 = createVector(x2, y2);
+		this.previousP1 = this.p1.copy();
+		this.previousP2 = this.p2.copy();
+		this.velocity = createVector(vx, vy);
+		this.setLength(dist(x1, y1, x2, y2));
+	}
+	reconstruction(){
+		this.p1.set(this.backup.x1, this.backup.y1);
+		this.p2.set(this.backup.x2, this.backup.y2);
+		this.previousP1.set(this.p1);
+		this.previousP2.set(this.p2);
+		this.velocity.set(this.backup.vx, this.backup.vy);
 	}
 	calcPositionFromProportion(proportion){
 		return p5.Vector.lerp(this.p1, this.p2, proportion);
@@ -488,6 +551,9 @@ class LineRail extends Rail{
 	record(){
 		this.previousP1.set(this.p1);
 		this.previousP2.set(this.p2);
+	}
+	defaultMove(){
+		// 位置ベース移動の場合速度は常に0で、これは実行されるが意味をなさない。
 		this.p1.add(this.velocity);
 		this.p2.add(this.velocity);
 	}
@@ -509,14 +575,20 @@ class LineRail extends Rail{
 
 // 円形のレール
 class CircleRail extends Rail{
-  constructor(param, c, v, r){
+  constructor(param, cx, cy, r, vx = 0, vy = 0){
 		super(param);
+		this.backup = {cx:cx, cy:cy, vx:vx, vy:vy};
 		this.reverse = false;
-		this.center = c;
+		this.center = createVector(cx, cy);
+		this.previousCenter = this.center.copy();
+		this.velocity = createVector(vx, vy);
 		this.radius = r;
-		this.previousCenter = c.copy();
-		this.velocity = v;
 		this.setLength(2 * Math.PI * r);
+	}
+	reconstruction(){
+		this.center.set(this.backup.cx, this.backup.cy);
+		this.previousCenter.set(this.center);
+		this.velocity.set(this.backup.vx, this.backup.vy);
 	}
 	calcPositionFromProportion(proportion){
 		const angle = proportion * 2 * Math.PI;
@@ -553,6 +625,9 @@ class CircleRail extends Rail{
 	record(){
 		this.previousCenter.set(this.center);
 	}
+	defaultMove(){
+		this.center.add(this.velocity);
+	}
 	drawRail(){
 		circle(this.center.x, this.center.y, this.radius * 2);
 	}
@@ -575,17 +650,26 @@ class CircleRail extends Rail{
 // そうするとcosの値が出るからそれがある値以上なら弧の上って出るからそれ使った方が明らかに楽。あとは・・
 // headingで出した角度をt～t+Aに落とした方が簡単そう・・t～t+2PIに落として。そうすればproportionもすぐ出るし判定も一瞬。それで行こう。
 class ArcRail extends Rail{
-	constructor(param, c, v, r, t, diff, angleSpeed = 0){
+	constructor(param, cx, cy, r, t, diff, vx = 0, vy = 0, angleSpeed = 0){
 		super(param);
+		this.backup = {cx:cx, cy:cy, vx:vx, vy:vy, t1:t, t2:(t + diff), angleSpeed:angleSpeed};
 		this.reverse = true;
-		this.center = c;
-		this.previousCenter = c.copy();
-		this.velocity = v;
+		this.center = createVector(cx, cy);
+		this.previousCenter = this.center.copy();
+		this.velocity = createVector(vx, vy);
 		this.radius = r;
 		this.setLength(2 * diff * r);
 		this.t1 = t;
 		this.t2 = t + diff;
 		this.angleSpeed = angleSpeed;
+	}
+	reconstruction(){
+		this.center.set(this.backup.cx, this.backup.cy);
+		this.previousCenter.set(this.center);
+		this.velocity.set(this.backup.vx, this.backup.vy);
+		this.t1 = this.backup.t1;
+		this.t2 = this.backup.t2;
+		this.angleSpeed = this.backup.angleSpeed;
 	}
 	calcPositionFromProportion(proportion){
 		let angle = this.t1 + proportion * (this.t2 - this.t1);
@@ -626,6 +710,11 @@ class ArcRail extends Rail{
 	}
 	record(){
 		this.previousCenter.set(this.center);
+	}
+	defaultMove(){
+		this.center.add(this.velocity);
+		this.t1 += this.angleSpeed;
+		this.t2 += this.angleSpeed;
 	}
 	drawRail(){
 		arc(this.center.x, this.center.y, this.radius * 2, this.radius * 2, this.t1, this.t2);
@@ -680,26 +769,43 @@ class RailPointer{
 // まあ、あった方がいいか（事故を防ぐために）。
 // 結局、レールと一緒でmoveだけ分離した方がすっきりするかな・・
 class MovingObject{
-	constructor(p){
-		this.position = p;
-		this.previousPosition = p.copy();
+	constructor(x, y){
+		this.position = createVector(x, y);
+		this.previousPosition = this.position.copy();
 		this.belongingData = {isBelonging:false, rail:undefined, proportion:undefined, sign:0};
 
-		//this.appearCount = 0;
 		this.properFrameCount = 0; // 図形が回転するならそういうのをとかなんかそんなの
 		this.alive = true;
 		this.visible = false; // 出現するまでは直線と交わっても乗っからないとかそういうの。
 		this.waitCount = 0;
 		this.vanish = false;
-		//this.vanishCount = OBJECT_VANISH_SPAN;
+
+		this.lifeCount = Infinity;
+		this.sleepCount = 0;
 
     // 個性に関するデータ。この辺がプレーヤーと敵で大きく分かれそう。
-  	//this.speed = speed;
-    //this.velocity = p5.Vector.fromAngle(direction, speed);
-		this.manualVelocity = createVector();
-		this.accellVelocity = createVector();
+		this.manualVelocity = createVector(0, 0);
+		this.accellVelocity = createVector(0, 0);
 
 		this.avoidRail = false; // trueだとレールを避ける. 継承の方で何とかする。
+	}
+	setLife(lifeCount, sleepCount = 0){
+		this.lifeCount = lifeCount;
+		this.sleepCount = sleepCount;
+	}
+	reset(){
+		this.belongingData = {isBelonging:false, rail:undefined, proportion:undefined, sign:0};
+		this.properFrameCount = 0;
+		this.alive = true;
+		this.visible = false;
+		this.waitCount = 0;
+		this.vanish = false;
+		this.manualVelocity.set(0, 0);
+		this.accellVelocity.set(0, 0);
+		this.reconstruction();
+	}
+	reconstruction(){
+		// 個別の復活メソッド
 	}
 	isAlive(){
 		return this.alive;
@@ -762,6 +868,10 @@ class MovingObject{
 			}
 		}
 	}
+	sleepCheck(){
+		this.properFrameCount++;
+		return this.properFrameCount === this.sleepCount;
+	}
 	onRailMove(){
 		// レールに乗ってるときの速度補正処理
 	}
@@ -800,19 +910,26 @@ class MovingObject{
 // 何が何でも完成させる
 // Playerはレールの特性に影響を受ける。ダメージレールに乗れなかったり。
 // bindのレールから離脱ボタンで離脱できないようにいじるのは適宜メソッドを用意するので・・待っててね。
+
+// sleepCountを用意するとか。セーブポイントを用意してそこから再開する・・・
 class Player extends MovingObject{
-	constructor(p){
-		super(p);
+	constructor(x, y){
+		super(x, y);
+		this.backup = {x:x, y:y};
 		// この2つはPlayer用でそのうち移す
 	  this.radius = PLAYER_RADIUS;
 		this.jumpFlag = false; // ジャンプ
 		this.derailFlag = false; // 自然な離脱
 	}
+	reconstruction(){
+		this.position.set(this.backup.x, this.backup.y);
+		this.previousPosition.set(this.position);
+	}
 	reaction(_rail, proportion){
 		// ダメージかどうかで分ける。
 		// 乗った後は知らない。
 		switch(_rail.damageFlag){
-			case NONE:
+			case NONE_D:
 			  this.setRail(_rail, proportion); break;
 			case ALL_D:
 			  this.kill(); break;
@@ -828,6 +945,7 @@ class Player extends MovingObject{
 		if(!data.isBelonging){ return; }
 		if(data.rail.bind){ return; }
 		this.derailFlag = true;
+		this.waitCount = OBJECT_UNRIDE_SPAN;
 	}
 	setJumpFlag(){
 		// キー入力で使う（スペース）
@@ -835,8 +953,9 @@ class Player extends MovingObject{
 		if(!data.isBelonging){ return; }
 		if(data.rail.bind){ return; }
 		this.jumpFlag = true;
+		this.waitCount = OBJECT_UNRIDE_SPAN;
 	}
-	getKeyInput(){
+	getArrowKeyInput(){
 		const x = (keyIsDown(RIGHT_ARROW) ? 1 : (keyIsDown(LEFT_ARROW) ? -1 : 0));
 		const y = (keyIsDown(DOWN_ARROW) ? 1 : (keyIsDown(UP_ARROW) ? -1 : 0));
 		return {x, y};
@@ -862,21 +981,21 @@ class Player extends MovingObject{
 		if(_rail.reverse){
 			// 弧とか線分
 			if(data.proportion < 0){
-				if(stopper[0]){
+				if(_rail.stopper[0]){
 					data.proportion = 0;
 					this.manualVelocity.set(0, 0); // はじっこで止まる場合
-					this.accellVelocity.set(0, 0);
+					this.accellVelocity.set(0, 0); // どっちも0にする
 				}else{
-					this.derailment();
+					this.derailment(); // 外れる
 				}
 			}
 			if(data.proportion > 1){
-				if(stopper[1]){
+				if(_rail.stopper[1]){
 					data.proportion = 1;
 					this.manualVelocity.set(0, 0); // はじっこで止まる場合
 					this.accellVelocity.set(0, 0); // どっちも0にする
 				}else{
-					this.derailment();
+					this.derailment(); // 外れる
 				}
 			}
 		}else{
@@ -909,7 +1028,7 @@ class Player extends MovingObject{
 
     let data = this.belongingData;
 		const _rail = data.rail;
-		const tangent = _rail.calcTangent(data.proportion); // 接線単位ベクトル。何かと使うので。
+		const tangent = _rail.calcTangentFromProportion(data.proportion); // 接線単位ベクトル。何かと使うので。
 		if(_rail.force){
 			const pointer = _rail.pointer;
 			const stopper = _rail.stopper;
@@ -918,16 +1037,17 @@ class Player extends MovingObject{
 			data.proportion = (data.proportion * _rail.length + pointer.speed) / _rail.length;
 		}else{
 			// キー入力による変更
+			// manualSpeedとaccellSpeedにバリデーションを適用するか。それでいける？
 			const arrowKeyInput = this.getArrowKeyInput();
 			this.controlManualVelocity(arrowKeyInput.x, arrowKeyInput.y);
 			let manualSpeed = 0;
 			let accellSpeed = 0;
-			manualSpeed = p5.Vector.dot(this.manualVelocity, tangent);
+			manualSpeed = Math.min(p5.Vector.dot(this.manualVelocity, tangent), PLAYER_MANUALSPEED_LIMIT);
 			this.manualVelocity.set(p5.Vector.mult(tangent, manualSpeed)); // 射影を取る
 			// 加速度の影響がある場合の処理
 			if(_rail.acceleration !== undefined){
 				this.accellVelocity.add(_rail.acceleration);
-				accellSpeed = p5.Vector.dot(this.accellVelocity, tangent);
+				accellSpeed = Math.min(p5.Vector.dot(this.accellVelocity, tangent), PLAYER_ACCELLSPEED_LIMIT);
 				this.accellVelocity.set(p5.Vector.mult(tangent, accellSpeed)); // 射影を取る
 			}
 			// 符号付の速さでないと失敗する。tangent方向が基準。tangentはproportionの増加方向に流れてるので、
@@ -936,7 +1056,7 @@ class Player extends MovingObject{
 		}
 		// proportionの補正はこの辺で行なうのがいいのでは。
 		this.proportionAdjustment();
-		this.velocityAdjustment();
+		// 速度についてのバリデーションはかけない。中でやってるから。
 	}
 	offRailMove(){
 		// 上下の入力は無視される。自由に動くが鉛直下方の重力に支配される。
@@ -949,13 +1069,20 @@ class Player extends MovingObject{
 	updatePosition(){
 		// 位置・・レールに乗ってるならプロポーション使ってサクッと
 		// 乗ってないなら速度に従ってね
+		const {isBelonging, proportion, rail} = this.belongingData;
+		if(isBelonging){
+			this.position.set(rail.calcPositionFromProportion(proportion));
+		}else{
+			this.position.add(this.manualVelocity);
+			this.position.add(this.accellVelocity);
+		}
 	}
 	draw(){
     // drawObject, drawAppearingObject, drawVanishingObjectに分けた方がいいかも。
     // Appearingは敵だったらパーティクルが集まってから半径大きくしてどん！みたいな。他にもellipseで横や縦に広げるとか変化を持たせたい。
     // Vanishingも。今使ってるのはPlayer用で・・
 		// 普通にプレイヤーの色にした。最終的にはグラフィック。
-		if(this.belongingdata.isBelonging){
+		if(this.belongingData.isBelonging){
 			stroke(ONRAIL_PLAYER_COLOR);
 		}else{
 			stroke(OFFRAIL_PLAYER_COLOR);
@@ -985,6 +1112,18 @@ class Player extends MovingObject{
 // やっぱポインターにも従って欲しいかも。動きが作りやすい。
 class Enemy extends MovingObject{
 	constructor(){}
+}
+
+// キー入力。
+function keyPressed(){
+	if(keyCode === 32){
+		// スペースキーでジャンプ
+		mySystem.player.setJumpFlag();
+	}
+	if(keyCode === SHIFT){
+		// シフトキー、keyTypedだと使えないのにkeyPressedだと使えるの謎。
+		mySystem.player.setDerailFlag();
+	}
 }
 
 /*
